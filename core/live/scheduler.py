@@ -39,6 +39,8 @@ class LiveTradingConfig:
     fixed_investment_amount: float = 1000.0  # Fixed $1000 investment per position (default, can be overridden by asset profile)
     enable_profit_taking: bool = True  # Enable automatic profit-taking
     asset_profiles: Optional[dict[str, "AssetProfile"]] = None  # Asset profiles per symbol
+    offline_mode: bool = False  # Explicit offline/cached mode flag
+    replay_speed_multiplier: float = 600.0  # Replay speed: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
 
 
 class LiveTradingLoop:
@@ -78,6 +80,9 @@ class LiveTradingLoop:
         self.bar_count = 0
         self.last_bar_time: Optional[datetime] = None
         self.error_message: Optional[str] = None
+        self.stop_reason: Optional[str] = None  # Reason for stopping (e.g., "end_of_data", "user_stop", "error")
+        self.start_time: Optional[datetime] = None  # Track when loop started
+        self.bars_per_symbol: dict[str, int] = {symbol: 0 for symbol in self.config.symbols}  # Track bars per symbol
 
         # Feature buffers
         self.bar_history: dict[str, List[Bar]] = {symbol: [] for symbol in self.config.symbols}
@@ -153,9 +158,36 @@ class LiveTradingLoop:
 
     def stop(self) -> None:
         """Stop the live trading loop."""
+        if self.is_running:
+            self.stop_reason = "user_stop"
+            if hasattr(self.config, 'offline_mode') and self.config.offline_mode:
+                self._log_simulation_summary()
         self.is_running = False
         if self.thread:
             self.thread.join(timeout=5.0)
+    
+    def _log_simulation_summary(self) -> None:
+        """Log summary statistics when simulation completes."""
+        if not self.start_time:
+            return
+        
+        from datetime import datetime, timezone
+        duration = (datetime.now(timezone.utc) - self.start_time).total_seconds()
+        
+        logger.info("=" * 60)
+        logger.info("📊 SIMULATION SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
+        logger.info(f"Total bars processed: {self.bar_count}")
+        logger.info(f"Bars per symbol:")
+        for symbol, count in self.bars_per_symbol.items():
+            logger.info(f"  {symbol}: {count} bars")
+        if duration > 0:
+            bars_per_second = self.bar_count / duration
+            logger.info(f"Processing speed: {bars_per_second:.1f} bars/second")
+        logger.info(f"Final portfolio value: ${self.portfolio.current_equity():,.2f}")
+        logger.info(f"Total trades: {len(self.portfolio.trade_history) if hasattr(self.portfolio, 'trade_history') else 'N/A'}")
+        logger.info("=" * 60)
 
     def pause(self) -> None:
         """Pause the loop (keeps connection alive)."""
@@ -167,13 +199,21 @@ class LiveTradingLoop:
 
     def _run_loop(self) -> None:
         """Main event loop (runs in background thread)."""
-        # Detect if we're in offline/cached mode (CachedDataFeed has cache_path attribute)
-        is_offline_mode = hasattr(self.data_feed, 'cache_path')
+        from datetime import datetime, timezone
+        self.start_time = datetime.now(timezone.utc)
         
+        # Use explicit offline_mode from config, or detect via cache_path
+        is_offline_mode = self.config.offline_mode or hasattr(self.data_feed, 'cache_path')
+        
+        # Calculate sleep interval based on replay speed
         if is_offline_mode:
-            logger.info(f"🔵 [LiveLoop] Running in OFFLINE/CACHED mode - processing bars as fast as possible")
+            # In offline mode, use replay speed multiplier
+            base_interval = self.config.bar_interval_seconds
+            sleep_interval = base_interval / self.config.replay_speed_multiplier
+            logger.info(f"🔵 [LiveLoop] Mode = OFFLINE (cached) - Replay speed: {self.config.replay_speed_multiplier}x ({sleep_interval:.3f}s per bar)")
         else:
-            logger.info(f"🔵 [LiveLoop] Running in LIVE mode - waiting {self.config.bar_interval_seconds}s between bars")
+            sleep_interval = self.config.bar_interval_seconds
+            logger.info(f"🔵 [LiveLoop] Mode = LIVE (realtime) - Interval: {sleep_interval}s per bar")
         
         consecutive_no_bars = 0
         max_consecutive_no_bars = 10  # Stop if no bars for 10 iterations
@@ -191,9 +231,10 @@ class LiveTradingLoop:
                     if bar:
                         self._process_bar(symbol, bar)
                         bars_processed += 1
+                        self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
                         consecutive_no_bars = 0  # Reset counter when we get a bar
                         if is_offline_mode:
-                            logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp}")
+                            logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp} (total for {symbol}: {self.bars_per_symbol[symbol]})")
                     elif is_offline_mode:
                         # In offline mode, None means we've reached end of data
                         cached_data = getattr(self.data_feed, 'cached_data', {})
@@ -213,18 +254,19 @@ class LiveTradingLoop:
                     if bars_processed == 0:
                         consecutive_no_bars += 1
                         if consecutive_no_bars >= max_consecutive_no_bars:
-                            logger.info(f"✅ [LiveLoop] No more bars available - simulation complete. Processed {self.bar_count} total bars.")
-                            # Don't stop, just log - let user manually stop if needed
-                            consecutive_no_bars = 0  # Reset to continue checking
-                            time.sleep(5.0)  # Check every 5 seconds if new data arrives
-                            continue
+                            # End of data reached - log summary and stop
+                            self._log_simulation_summary()
+                            self.stop_reason = "end_of_data"
+                            self.is_running = False
+                            logger.info(f"✅ [LiveLoop] Simulation complete - stopped due to end of data")
+                            break
                     else:
                         consecutive_no_bars = 0
-                    # In offline mode, process bars quickly (0.1s between iterations)
-                    time.sleep(0.1)
+                    # In offline mode, use calculated sleep interval (based on replay speed)
+                    time.sleep(sleep_interval)
                 else:
                     # In live mode, wait for real-time interval
-                    time.sleep(self.config.bar_interval_seconds)
+                    time.sleep(sleep_interval)
 
             except Exception as e:
                 error_str = str(e)

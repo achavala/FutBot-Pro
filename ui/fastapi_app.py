@@ -610,6 +610,7 @@ class LiveStartRequest(BaseModel):
     offline_mode: bool = False  # Use cached data instead of live data
     fixed_investment_amount: float = 1000.0  # $1000 per trade
     start_date: Optional[str] = None  # Start from specific date (YYYY-MM-DD) for offline trading, e.g., "2024-01-15"
+    replay_speed: Optional[float] = 600.0  # Replay speed multiplier: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
@@ -806,7 +807,10 @@ async def start_live_trading(request: LiveStartRequest):
             fixed_investment_amount=request.fixed_investment_amount,
             enable_profit_taking=True,
             asset_profiles=asset_profiles,
+            offline_mode=request.offline_mode or request.broker_type == "cached",
+            replay_speed_multiplier=request.replay_speed or 600.0,  # Use provided speed or default 600x
         )
+        logger.info(f"🔵 Replay speed: {live_config.replay_speed_multiplier}x")
         logger.info(f"🔵 LiveTradingConfig created, calling bot_manager.start_live_trading()...")
         bot_manager.start_live_trading(
             symbols=request.symbols,

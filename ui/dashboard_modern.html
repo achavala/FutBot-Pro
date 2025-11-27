@@ -411,6 +411,16 @@
                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
                               max-width: 150px;" 
                        title="Start simulation from this date (YYYY-MM-DD). Leave empty to use all available data.">
+                <select id="replaySpeed" 
+                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                               max-width: 120px;"
+                        title="Replay speed multiplier">
+                    <option value="1">1x (Real-time)</option>
+                    <option value="10">10x</option>
+                    <option value="100">100x</option>
+                    <option value="600" selected>600x (Fast)</option>
+                </select>
                 <button class="ctrl-btn btn-start" id="btnStart" onclick="controlBot('start')"><i class="fas fa-play"></i> Start Live</button>
                 <button class="ctrl-btn btn-sim" id="btnSim" onclick="startSimulation()" style="background:#3b82f6; color:white;"><i class="fas fa-flask"></i> Simulate</button>
                 <button class="ctrl-btn btn-pause" id="btnPause" onclick="controlBot('pause')"><i class="fas fa-pause"></i> Pause</button>
@@ -649,11 +659,16 @@
             const startDateInput = document.getElementById('simStartDate');
             const startDate = startDateInput ? startDateInput.value : null;
             
+            // Get replay speed
+            const replaySpeedInput = document.getElementById('replaySpeed');
+            const replaySpeed = replaySpeedInput ? parseFloat(replaySpeedInput.value) : 600.0;
+            
             const payload = {
                 symbols: ["QQQ", "SPY"], // Default symbols
                 broker_type: "cached",   // Offline mode
                 offline_mode: true,
-                fixed_investment_amount: 10000.0 // $10k per trade for simulation
+                fixed_investment_amount: 10000.0, // $10k per trade for simulation
+                replay_speed: replaySpeed
             };
             
             // Add start_date if provided
