@@ -802,6 +802,9 @@
                 if (action === 'start') {
                     // Default start params
                     body = {}; 
+                } else if (action === 'stop') {
+                    // Stop live trading/simulation
+                    endpoint = '/live/stop';
                 } else if (action === 'kill') {
                     // Toggle logic needed or assume engage? Assuming toggle based on UI logic is complex, 
                     // let's assume this button ENGAGES kill switch for safety.
