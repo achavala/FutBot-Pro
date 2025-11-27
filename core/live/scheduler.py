@@ -167,20 +167,64 @@ class LiveTradingLoop:
 
     def _run_loop(self) -> None:
         """Main event loop (runs in background thread)."""
+        # Detect if we're in offline/cached mode (CachedDataFeed has cache_path attribute)
+        is_offline_mode = hasattr(self.data_feed, 'cache_path')
+        
+        if is_offline_mode:
+            logger.info(f"🔵 [LiveLoop] Running in OFFLINE/CACHED mode - processing bars as fast as possible")
+        else:
+            logger.info(f"🔵 [LiveLoop] Running in LIVE mode - waiting {self.config.bar_interval_seconds}s between bars")
+        
+        consecutive_no_bars = 0
+        max_consecutive_no_bars = 10  # Stop if no bars for 10 iterations
+        
         while self.is_running:
             try:
                 if self.is_paused:
                     time.sleep(1.0)
                     continue
 
+                bars_processed = 0
                 # Process each symbol
                 for symbol in self.config.symbols:
                     bar = self.data_feed.get_next_bar(symbol, timeout=1.0)
                     if bar:
                         self._process_bar(symbol, bar)
+                        bars_processed += 1
+                        consecutive_no_bars = 0  # Reset counter when we get a bar
+                        if is_offline_mode:
+                            logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp}")
+                    elif is_offline_mode:
+                        # In offline mode, None means we've reached end of data
+                        cached_data = getattr(self.data_feed, 'cached_data', {})
+                        current_indices = getattr(self.data_feed, 'current_indices', {})
+                        if symbol in cached_data:
+                            current_idx = current_indices.get(symbol, 0)
+                            total_bars = len(cached_data.get(symbol, []))
+                            if current_idx >= total_bars:
+                                logger.info(f"✅ [LiveLoop] Finished processing all {total_bars} cached bars for {symbol}")
+                            else:
+                                logger.debug(f"🔵 [LiveLoop] No bar available for {symbol} (bar {current_idx}/{total_bars})")
+                        else:
+                            logger.debug(f"🔵 [LiveLoop] No cached data available for {symbol}")
 
-                # Sleep until next bar interval
-                time.sleep(self.config.bar_interval_seconds)
+                # Handle end of data in offline mode
+                if is_offline_mode:
+                    if bars_processed == 0:
+                        consecutive_no_bars += 1
+                        if consecutive_no_bars >= max_consecutive_no_bars:
+                            logger.info(f"✅ [LiveLoop] No more bars available - simulation complete. Processed {self.bar_count} total bars.")
+                            # Don't stop, just log - let user manually stop if needed
+                            consecutive_no_bars = 0  # Reset to continue checking
+                            time.sleep(5.0)  # Check every 5 seconds if new data arrives
+                            continue
+                    else:
+                        consecutive_no_bars = 0
+                    # In offline mode, process bars quickly (0.1s between iterations)
+                    time.sleep(0.1)
+                else:
+                    # In live mode, wait for real-time interval
+                    time.sleep(self.config.bar_interval_seconds)
 
             except Exception as e:
                 error_str = str(e)
