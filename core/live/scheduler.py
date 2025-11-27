@@ -779,12 +779,22 @@ class LiveTradingLoop:
         self.state_store.update_state(state)
 
     def get_status(self) -> dict:
-        """Get current loop status."""
-        return {
+        """Get current status of the live trading loop."""
+        status = {
             "is_running": self.is_running,
             "is_paused": self.is_paused,
             "bar_count": self.bar_count,
             "last_bar_time": self.last_bar_time.isoformat() if self.last_bar_time else None,
             "error": self.error_message,
+            "stop_reason": self.stop_reason,
+            "bars_per_symbol": self.bars_per_symbol,
         }
+        
+        # Add duration if started
+        if self.start_time:
+            from datetime import datetime, timezone
+            duration = (datetime.now(timezone.utc) - self.start_time).total_seconds()
+            status["duration_seconds"] = duration
+        
+        return status
 
