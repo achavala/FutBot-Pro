@@ -639,8 +639,11 @@ async def start_live_trading(request: LiveStartRequest):
     import os
 
     # Create broker client based on type
-    if request.broker_type == "paper":
+    if request.broker_type == "paper" or request.broker_type == "cached":
+        # Use paper broker for both paper trading and cached/offline simulation
         broker_client = PaperBrokerClient(initial_cash=bot_manager.portfolio.initial_capital)
+        if request.broker_type == "cached":
+            logger.info("Using paper broker client for cached/offline simulation")
     elif request.broker_type == "ibkr":
         # Lazy import IBKR to avoid uvloop conflict
         IBKRBrokerClient = get_ibkr_broker_client()
