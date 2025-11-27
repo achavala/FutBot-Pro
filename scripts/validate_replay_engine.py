@@ -15,6 +15,13 @@ def test_basic_historical_run():
     print("TEST 1: Basic Historical Run")
     print("=" * 60)
     
+    # Stop any existing simulation first
+    try:
+        requests.post(f"{API_BASE}/live/stop", timeout=5)
+        time.sleep(2)
+    except:
+        pass
+    
     # Use date 10 days ago
     start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
     

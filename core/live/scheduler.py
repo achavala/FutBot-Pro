@@ -225,29 +225,43 @@ class LiveTradingLoop:
                     continue
 
                 bars_processed = 0
-                # Process each symbol
+                # Process each symbol - in offline mode, try to get multiple bars per iteration
                 for symbol in self.config.symbols:
-                    bar = self.data_feed.get_next_bar(symbol, timeout=1.0)
-                    if bar:
-                        self._process_bar(symbol, bar)
-                        bars_processed += 1
-                        self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
-                        consecutive_no_bars = 0  # Reset counter when we get a bar
-                        if is_offline_mode:
-                            logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp} (total for {symbol}: {self.bars_per_symbol[symbol]})")
-                    elif is_offline_mode:
-                        # In offline mode, None means we've reached end of data
-                        cached_data = getattr(self.data_feed, 'cached_data', {})
-                        current_indices = getattr(self.data_feed, 'current_indices', {})
-                        if symbol in cached_data:
-                            current_idx = current_indices.get(symbol, 0)
-                            total_bars = len(cached_data.get(symbol, []))
-                            if current_idx >= total_bars:
-                                logger.info(f"✅ [LiveLoop] Finished processing all {total_bars} cached bars for {symbol}")
+                    # In offline mode, try to process multiple bars per iteration for speed
+                    if is_offline_mode:
+                        # Process up to 10 bars per symbol per iteration for faster replay
+                        bars_this_iteration = 0
+                        max_bars_per_iteration = 10
+                        while bars_this_iteration < max_bars_per_iteration and self.is_running:
+                            bar = self.data_feed.get_next_bar(symbol, timeout=0.1)  # Short timeout in offline mode
+                            if bar:
+                                self._process_bar(symbol, bar)
+                                bars_processed += 1
+                                bars_this_iteration += 1
+                                self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                                consecutive_no_bars = 0  # Reset counter when we get a bar
+                                if bars_this_iteration == 1:  # Log first bar of iteration
+                                    logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp} (total for {symbol}: {self.bars_per_symbol[symbol]})")
                             else:
-                                logger.debug(f"🔵 [LiveLoop] No bar available for {symbol} (bar {current_idx}/{total_bars})")
-                        else:
-                            logger.debug(f"🔵 [LiveLoop] No cached data available for {symbol}")
+                                # No more bars available for this symbol, check status
+                                cached_data = getattr(self.data_feed, 'cached_data', {})
+                                current_indices = getattr(self.data_feed, 'current_indices', {})
+                                if symbol in cached_data:
+                                    current_idx = current_indices.get(symbol, 0)
+                                    total_bars = len(cached_data.get(symbol, []))
+                                    if current_idx >= total_bars:
+                                        logger.debug(f"✅ [LiveLoop] Finished all {total_bars} cached bars for {symbol}")
+                                    else:
+                                        logger.debug(f"🔵 [LiveLoop] No bar available for {symbol} (bar {current_idx}/{total_bars})")
+                                break  # Move to next symbol
+                    else:
+                        # Live mode: process one bar per symbol per iteration
+                        bar = self.data_feed.get_next_bar(symbol, timeout=1.0)
+                        if bar:
+                            self._process_bar(symbol, bar)
+                            bars_processed += 1
+                            self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                            consecutive_no_bars = 0
 
                 # Handle end of data in offline mode
                 if is_offline_mode:
@@ -263,7 +277,12 @@ class LiveTradingLoop:
                     else:
                         consecutive_no_bars = 0
                     # In offline mode, use calculated sleep interval (based on replay speed)
-                    time.sleep(sleep_interval)
+                    # Only sleep if we processed bars (to avoid unnecessary delays)
+                    if bars_processed > 0:
+                        time.sleep(sleep_interval)
+                    else:
+                        # No bars processed, check more frequently
+                        time.sleep(0.01)  # 10ms check interval when no bars
                 else:
                     # In live mode, wait for real-time interval
                     time.sleep(sleep_interval)
