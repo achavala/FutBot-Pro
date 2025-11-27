@@ -605,8 +605,8 @@ async def start_live_trading(request: LiveStartRequest):
         AlpacaBrokerClient,
         AlpacaDataFeed,
         CryptoDataFeed,
-        IBKRBrokerClient,
-        IBKRDataFeed,
+        get_ibkr_broker_client,
+        get_ibkr_data_feed,
         MockDataFeed,
         PaperBrokerClient,
         LiveTradingConfig,
@@ -617,6 +617,8 @@ async def start_live_trading(request: LiveStartRequest):
     if request.broker_type == "paper":
         broker_client = PaperBrokerClient(initial_cash=bot_manager.portfolio.initial_capital)
     elif request.broker_type == "ibkr":
+        # Lazy import IBKR to avoid uvloop conflict
+        IBKRBrokerClient = get_ibkr_broker_client()
         # Use provided client_id or None (will auto-generate random)
         broker_client = IBKRBrokerClient(
             host=request.ibkr_host,
@@ -699,7 +701,8 @@ async def start_live_trading(request: LiveStartRequest):
                 bar_size="1Min",  # 1-minute bars (minimum available on Alpaca free tier)
             )
     elif request.broker_type == "ibkr":
-        from core.live import IBKRDataFeed
+        # Lazy import IBKR to avoid uvloop conflict
+        IBKRDataFeed = get_ibkr_data_feed()
         from pathlib import Path
         
         # Try to load Polygon client and cache for faster preload
