@@ -185,8 +185,14 @@ class LiveTradingLoop:
         if duration > 0:
             bars_per_second = self.bar_count / duration
             logger.info(f"Processing speed: {bars_per_second:.1f} bars/second")
-        logger.info(f"Final portfolio value: ${self.portfolio.current_equity():,.2f}")
-        logger.info(f"Total trades: {len(self.portfolio.trade_history) if hasattr(self.portfolio, 'trade_history') else 'N/A'}")
+        # Get final portfolio value from equity curve or calculate from current capital
+        if self.portfolio.equity_curve:
+            final_value = self.portfolio.equity_curve[-1]
+        else:
+            # Fallback: use current capital if no equity curve
+            final_value = self.portfolio.current_capital
+        logger.info(f"Final portfolio value: ${final_value:,.2f}")
+        logger.info(f"Total trades: {len(self.portfolio.trade_history) if hasattr(self.portfolio, 'trade_history') else 0}")
         logger.info("=" * 60)
 
     def pause(self) -> None:

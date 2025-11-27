@@ -71,6 +71,13 @@ def test_multi_symbol():
     print("TEST 2: Multi-Symbol Run")
     print("=" * 60)
     
+    # Stop any existing simulation first
+    try:
+        requests.post(f"{API_BASE}/live/stop", timeout=5)
+        time.sleep(3)  # Give it time to fully stop
+    except:
+        pass
+    
     start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
     
     payload = {
@@ -84,9 +91,6 @@ def test_multi_symbol():
     print(f"📤 Starting multi-symbol simulation...")
     
     try:
-        # Stop any existing simulation first
-        requests.post(f"{API_BASE}/live/stop", timeout=5)
-        time.sleep(2)
         
         response = requests.post(f"{API_BASE}/live/start", json=payload, timeout=10)
         
@@ -126,6 +130,13 @@ def test_replay_speed():
     print("TEST 3: Replay Speed Validation")
     print("=" * 60)
     
+    # Stop any existing simulation first
+    try:
+        requests.post(f"{API_BASE}/live/stop", timeout=5)
+        time.sleep(3)  # Give it time to fully stop
+    except:
+        pass
+    
     start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
     
     payload = {
@@ -137,8 +148,6 @@ def test_replay_speed():
     }
     
     try:
-        requests.post(f"{API_BASE}/live/stop", timeout=5)
-        time.sleep(2)
         
         response = requests.post(f"{API_BASE}/live/start", json=payload, timeout=10)
         
