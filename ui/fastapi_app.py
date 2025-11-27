@@ -268,16 +268,16 @@ async def get_service_worker():
 async def dashboard():
     """Serve the dashboard HTML."""
     from pathlib import Path
-    # Try Webull dashboard first, then modern, then fallback
-    webull_dashboard = Path(__file__).parent / "dashboard_webull.html"
+    # Try modern dashboard first (has latest features), then webull, then fallback
     modern_dashboard = Path(__file__).parent / "dashboard_modern.html"
+    webull_dashboard = Path(__file__).parent / "dashboard_webull.html"
     dashboard_path = Path(__file__).parent / "dashboard.html"
     
-    if webull_dashboard.exists():
-        html_content = webull_dashboard.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
-    elif modern_dashboard.exists():
+    if modern_dashboard.exists():
         html_content = modern_dashboard.read_text(encoding='utf-8')
+        return HTMLResponse(content=html_content, media_type="text/html")
+    elif webull_dashboard.exists():
+        html_content = webull_dashboard.read_text(encoding='utf-8')
         return HTMLResponse(content=html_content, media_type="text/html")
     elif dashboard_path.exists():
         html_content = dashboard_path.read_text(encoding='utf-8')
