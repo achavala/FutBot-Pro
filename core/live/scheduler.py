@@ -220,7 +220,11 @@ class LiveTradingLoop:
             # In offline mode, use replay speed multiplier
             base_interval = self.config.bar_interval_seconds
             sleep_interval = base_interval / self.config.replay_speed_multiplier
-            logger.info(f"🔵 [LiveLoop] Mode = OFFLINE (cached) - Replay speed: {self.config.replay_speed_multiplier}x ({sleep_interval:.3f}s per bar)")
+            logger.info(f"🔵 [LiveLoop] OFFLINE MODE ENABLED")
+            logger.info(f"🔵 [LiveLoop] Replay speed: {self.config.replay_speed_multiplier}x ({sleep_interval:.3f}s per bar)")
+            logger.info(f"🔵 [LiveLoop] Processing up to 10 bars per iteration")
+            if self.start_date:
+                logger.info(f"🔵 [LiveLoop] Beginning replay at {self.start_date}")
         else:
             sleep_interval = self.config.bar_interval_seconds
             logger.info(f"🔵 [LiveLoop] Mode = LIVE (realtime) - Interval: {sleep_interval}s per bar")
@@ -239,31 +243,58 @@ class LiveTradingLoop:
                 for symbol in self.config.symbols:
                     # In offline mode, try to process multiple bars per iteration for speed
                     if is_offline_mode:
-                        # Process up to 10 bars per symbol per iteration for faster replay
-                        bars_this_iteration = 0
-                        max_bars_per_iteration = 10
-                        while bars_this_iteration < max_bars_per_iteration and self.is_running:
-                            bar = self.data_feed.get_next_bar(symbol, timeout=0.1)  # Short timeout in offline mode
-                            if bar:
-                                self._process_bar(symbol, bar)
-                                bars_processed += 1
-                                bars_this_iteration += 1
-                                self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
-                                consecutive_no_bars = 0  # Reset counter when we get a bar
-                                if bars_this_iteration == 1:  # Log first bar of iteration
-                                    logger.debug(f"🔵 [LiveLoop] Processed bar {self.bar_count} for {symbol}: {bar.timestamp} (total for {symbol}: {self.bars_per_symbol[symbol]})")
+                        # Use batch fetching if available (more efficient)
+                        if hasattr(self.data_feed, 'get_next_n_bars'):
+                            # Batch fetch up to 10 bars at once
+                            batch_bars = self.data_feed.get_next_n_bars(symbol, n=10, timeout=0.1)
+                            if batch_bars:
+                                for bar in batch_bars:
+                                    if not self.is_running:
+                                        break
+                                    self._process_bar(symbol, bar)
+                                    bars_processed += 1
+                                    self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                                    consecutive_no_bars = 0
+                                
+                                # Log progress every 100 bars (reduces I/O overhead)
+                                if self.bars_per_symbol.get(symbol, 0) % 100 == 0:
+                                    logger.info(f"🔵 [LiveLoop] {symbol} processed {self.bars_per_symbol[symbol]} bars so far")
                             else:
-                                # No more bars available for this symbol, check status
+                                # No more bars available for this symbol
                                 cached_data = getattr(self.data_feed, 'cached_data', {})
                                 current_indices = getattr(self.data_feed, 'current_indices', {})
                                 if symbol in cached_data:
                                     current_idx = current_indices.get(symbol, 0)
                                     total_bars = len(cached_data.get(symbol, []))
                                     if current_idx >= total_bars:
-                                        logger.debug(f"✅ [LiveLoop] Finished all {total_bars} cached bars for {symbol}")
+                                        logger.info(f"✅ [LiveLoop] Finished all {total_bars} cached bars for {symbol}")
                                     else:
                                         logger.debug(f"🔵 [LiveLoop] No bar available for {symbol} (bar {current_idx}/{total_bars})")
-                                break  # Move to next symbol
+                        else:
+                            # Fallback to single bar fetching if batch method not available
+                            bars_this_iteration = 0
+                            max_bars_per_iteration = 10
+                            while bars_this_iteration < max_bars_per_iteration and self.is_running:
+                                bar = self.data_feed.get_next_bar(symbol, timeout=0.1)
+                                if bar:
+                                    self._process_bar(symbol, bar)
+                                    bars_processed += 1
+                                    bars_this_iteration += 1
+                                    self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                                    consecutive_no_bars = 0
+                                    # Log every 100 bars instead of every bar
+                                    if self.bars_per_symbol[symbol] % 100 == 0:
+                                        logger.info(f"🔵 [LiveLoop] {symbol} processed {self.bars_per_symbol[symbol]} bars so far")
+                                else:
+                                    # No more bars available
+                                    cached_data = getattr(self.data_feed, 'cached_data', {})
+                                    current_indices = getattr(self.data_feed, 'current_indices', {})
+                                    if symbol in cached_data:
+                                        current_idx = current_indices.get(symbol, 0)
+                                        total_bars = len(cached_data.get(symbol, []))
+                                        if current_idx >= total_bars:
+                                            logger.info(f"✅ [LiveLoop] Finished all {total_bars} cached bars for {symbol}")
+                                    break
                     else:
                         # Live mode: process one bar per symbol per iteration
                         bar = self.data_feed.get_next_bar(symbol, timeout=1.0)

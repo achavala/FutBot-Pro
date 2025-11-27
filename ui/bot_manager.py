@@ -399,8 +399,18 @@ class BotManager:
             return {"mode": "backtest", "is_running": False}
 
         loop_status = self.live_loop.get_status()
+        
+        # Determine mode: offline if config has offline_mode=True or data_feed has cache_path
+        is_offline = False
+        if self.live_loop.config and hasattr(self.live_loop.config, 'offline_mode'):
+            is_offline = self.live_loop.config.offline_mode
+        elif hasattr(self.data_feed, 'cache_path'):
+            is_offline = True
+        
+        mode = "offline" if is_offline else "live"
+        
         return {
-            "mode": "live",
+            "mode": mode,
             **loop_status,
             "symbols": self.live_loop.config.symbols if self.live_loop.config else [],
         }

@@ -227,6 +227,49 @@ class CachedDataFeed(BaseDataFeed):
         logger.debug(f"Returning cached bar {current_idx + 1}/{len(cached_bars)} for {symbol}: {bar.timestamp}")
         return bar
 
+    def get_next_n_bars(self, symbol: str, n: int = 10, timeout: float = 5.0) -> List[Bar]:
+        """
+        Get next N bars from cached data (batch fetch for better performance).
+        
+        Args:
+            symbol: Symbol to get bars for
+            n: Number of bars to fetch
+            timeout: Timeout in seconds (not used for cached data)
+            
+        Returns:
+            List of Bar objects (may be less than n if end of data is reached)
+        """
+        if not self.connected:
+            return []
+
+        if symbol not in self.subscribed_symbols:
+            return []
+
+        bars = []
+        
+        # First, drain buffer if available
+        while len(bars) < n and symbol in self.bar_buffers and len(self.bar_buffers[symbol]) > 0:
+            bars.append(self.bar_buffers[symbol].popleft())
+        
+        # If we still need more bars, get from cached data
+        if len(bars) < n:
+            if symbol not in self.cached_data or len(self.cached_data[symbol]) == 0:
+                return bars  # Return what we have
+            
+            current_idx = self.current_indices.get(symbol, 0)
+            cached_bars = self.cached_data[symbol]
+            
+            # Get remaining bars needed
+            remaining = n - len(bars)
+            available = len(cached_bars) - current_idx
+            
+            if available > 0:
+                end_idx = min(current_idx + remaining, len(cached_bars))
+                bars.extend(cached_bars[current_idx:end_idx])
+                self.current_indices[symbol] = end_idx
+        
+        return bars
+
     def reset(self, symbol: Optional[str] = None) -> None:
         """
         Reset to beginning of cached data.
