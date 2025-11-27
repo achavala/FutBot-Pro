@@ -587,6 +587,7 @@ class LiveStartRequest(BaseModel):
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
+    base_url: Optional[str] = None  # Override ALPACA_BASE_URL: "https://paper-api.alpaca.markets" or "https://api.alpaca.markets"
     # IBKR connection parameters
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 4002  # Common ports: 4002 (default), 7497 (paper), 7496 (live)
@@ -630,7 +631,8 @@ async def start_live_trading(request: LiveStartRequest):
         # Get Alpaca credentials from request or environment
         api_key = request.api_key or os.getenv("ALPACA_API_KEY")
         api_secret = request.api_secret or os.getenv("ALPACA_SECRET_KEY")
-        base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        # Use base_url from request, or environment, or default to paper
+        base_url = request.base_url or os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
         
         if not api_key or not api_secret:
             raise HTTPException(
@@ -643,7 +645,8 @@ async def start_live_trading(request: LiveStartRequest):
             api_secret=api_secret,
             base_url=base_url,
         )
-        logger.info("Alpaca broker client created successfully")
+        is_paper = "paper-api" in base_url
+        logger.info(f"Alpaca broker client created successfully (mode: {'paper' if is_paper else 'live'})")
     else:
         raise HTTPException(status_code=400, detail=f"Unknown broker type: {request.broker_type}")
 
@@ -667,7 +670,8 @@ async def start_live_trading(request: LiveStartRequest):
         # Get Alpaca credentials for data feed
         api_key = request.api_key or os.getenv("ALPACA_API_KEY")
         api_secret = request.api_secret or os.getenv("ALPACA_SECRET_KEY")
-        base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        # Use base_url from request, or environment, or default to paper
+        base_url = request.base_url or os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
         
         # Check if any symbols are crypto (e.g., BTC/USD, ETH/USD)
         def is_crypto_symbol(symbol: str) -> bool:
@@ -899,6 +903,7 @@ class ChallengeStartRequest(BaseModel):
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
+    base_url: Optional[str] = None  # Override ALPACA_BASE_URL: "https://paper-api.alpaca.markets" or "https://api.alpaca.markets"
 
 
 @app.post("/challenge/start")
@@ -1006,7 +1011,8 @@ async def start_challenge(request: ChallengeStartRequest):
     if request.broker_type == "alpaca":
         api_key = request.api_key or os.getenv("ALPACA_API_KEY")
         api_secret = request.api_secret or os.getenv("ALPACA_SECRET_KEY")
-        base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        # Use base_url from request, or environment, or default to paper
+        base_url = request.base_url or os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
         
         if not api_key or not api_secret:
             raise HTTPException(
@@ -1019,6 +1025,8 @@ async def start_challenge(request: ChallengeStartRequest):
             api_secret=api_secret,
             base_url=base_url,
         )
+        is_paper = "paper-api" in base_url
+        logger.info(f"Challenge mode Alpaca broker client created (mode: {'paper' if is_paper else 'live'})")
         
         # Create data feed (crypto or equity)
         def is_crypto_symbol(symbol: str) -> bool:
