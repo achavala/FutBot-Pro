@@ -663,7 +663,11 @@
         // --- Populate Date Dropdown (Last 3 Months) ---
         function populateDateDropdown() {
             const dateSelect = document.getElementById('simStartDate');
-            if (!dateSelect) return;
+            if (!dateSelect) {
+                console.warn('simStartDate element not found');
+                return;
+            }
+            console.log('Populating date dropdown...');
             
             // Clear existing options except "All Available Data"
             while (dateSelect.options.length > 1) {
@@ -706,14 +710,38 @@
                 option.textContent = date.label;  // Display: "Mon, Nov 25, 2024"
                 dateSelect.appendChild(option);
             });
+            
+            console.log(`Date dropdown populated with ${dates.length} dates`);
         }
         
-        // Initialize date dropdown on page load
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', populateDateDropdown);
-        } else {
-            populateDateDropdown();
+        // Initialize date dropdown on page load (multiple methods for reliability)
+        function initDateDropdown() {
+            try {
+                populateDateDropdown();
+                console.log('Date dropdown populated successfully');
+            } catch (e) {
+                console.error('Error populating date dropdown:', e);
+                // Retry after a short delay
+                setTimeout(populateDateDropdown, 100);
+            }
         }
+        
+        // Try multiple initialization methods
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initDateDropdown);
+        } else {
+            // DOM already loaded, run immediately
+            initDateDropdown();
+        }
+        
+        // Also try on window load as fallback
+        window.addEventListener('load', function() {
+            const dateSelect = document.getElementById('simStartDate');
+            if (dateSelect && dateSelect.options.length <= 1) {
+                console.log('Date dropdown empty on window load, repopulating...');
+                populateDateDropdown();
+            }
+        });
 
         // --- API Controls ---
         async function startSimulation() {
