@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from contextlib import asynccontextmanager
@@ -609,6 +609,7 @@ class LiveStartRequest(BaseModel):
     broker_type: str = "paper"  # "paper", "alpaca", "ibkr", or "cached" (offline)
     offline_mode: bool = False  # Use cached data instead of live data
     fixed_investment_amount: float = 1000.0  # $1000 per trade
+    start_date: Optional[str] = None  # Start from specific date (YYYY-MM-DD) for offline trading, e.g., "2024-01-15"
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
@@ -696,10 +697,25 @@ async def start_live_trading(request: LiveStartRequest):
             cache_path = Path(settings.data.cache.path)
             logger.info(f"🔵 Cache path: {cache_path}")
             
+            # Parse start_date if provided
+            start_date_obj = None
+            if request.start_date:
+                from datetime import datetime
+                try:
+                    start_date_obj = datetime.strptime(request.start_date, "%Y-%m-%d")
+                    # Set to market open time (9:30 AM ET = 13:30 UTC)
+                    start_date_obj = start_date_obj.replace(hour=13, minute=30, second=0, microsecond=0)
+                    if start_date_obj.tzinfo is None:
+                        start_date_obj = start_date_obj.replace(tzinfo=timezone.utc)
+                    logger.info(f"🔵 Starting from historical date: {start_date_obj}")
+                except ValueError as e:
+                    logger.warning(f"Invalid start_date format '{request.start_date}': {e}. Using all available data.")
+            
             data_feed = CachedDataFeed(
                 cache_path=cache_path,
                 bar_size="1Min",
                 symbols=request.symbols,
+                start_date=start_date_obj,
             )
             logger.info(f"✅ CachedDataFeed created successfully for symbols: {request.symbols}")
         except Exception as e:

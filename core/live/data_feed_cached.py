@@ -25,6 +25,7 @@ class CachedDataFeed(BaseDataFeed):
         cache_path: Path,
         bar_size: str = "1Min",
         symbols: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
     ):
         """
         Initialize cached data feed.
@@ -33,10 +34,12 @@ class CachedDataFeed(BaseDataFeed):
             cache_path: Path to cache database
             bar_size: Bar size (e.g., "1Min", "5Min")
             symbols: List of symbols (optional, can be set in subscribe)
+            start_date: Start from specific date (for historical replay)
         """
         self.cache_path = cache_path
         self.bar_size = bar_size
         self.cache = BarCache(cache_path)
+        self.start_date = start_date
         
         self.subscribed_symbols: List[str] = []
         self.bar_buffers: dict[str, Deque[Bar]] = {}
@@ -45,7 +48,10 @@ class CachedDataFeed(BaseDataFeed):
         
         self.connected = False
         
-        logger.info(f"Cached data feed initialized (bar_size={bar_size})")
+        if start_date:
+            logger.info(f"Cached data feed initialized (bar_size={bar_size}, start_date={start_date})")
+        else:
+            logger.info(f"Cached data feed initialized (bar_size={bar_size})")
 
     def connect(self) -> bool:
         """Connect to cached data feed."""
@@ -73,7 +79,14 @@ class CachedDataFeed(BaseDataFeed):
             
             # Load cached data
             logger.info(f"Loading cached data for {symbol}...")
-            cached_df = self.cache.load(symbol, self.bar_size)
+            
+            # If start_date is specified, load data from that date onwards
+            if self.start_date:
+                start_ts = int(self.start_date.timestamp() * 1000)
+                cached_df = self.cache.load(symbol, self.bar_size, start_ts=start_ts)
+                logger.info(f"Loading data from {self.start_date} onwards for {symbol}")
+            else:
+                cached_df = self.cache.load(symbol, self.bar_size)
             
             if cached_df.empty:
                 logger.warning(f"No cached data found for {symbol} - generating synthetic bars for simulation")
