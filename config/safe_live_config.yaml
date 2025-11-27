@@ -1,0 +1,102 @@
+# Safe Live Trading Configuration Template
+# DO NOT MODIFY THIS FILE CASUALLY
+# This is a conservative configuration for first live trading deployment
+
+app:
+  name: "FutBot"
+  version: "1.0.0"
+  mode: "live"  # backtest or live
+
+data:
+  cache_dir: "data/cache"
+  symbols: ["QQQ"]  # Start with ONE symbol
+  timeframe: "1min"
+
+polygon:
+  api_key: "${POLYGON_API_KEY}"  # Set via environment variable
+  base_url: "https://api.polygon.io"
+
+finnhub:
+  api_key: "${FINNHUB_API_KEY}"  # Set via environment variable
+  base_url: "https://finnhub.io/api/v1"
+
+agents:
+  min_confidence: 0.5  # Higher threshold for live
+  trend_agent:
+    enabled: true
+    min_confidence: 0.6
+  mean_reversion_agent:
+    enabled: true
+    min_confidence: 0.6
+  volatility_agent:
+    enabled: true
+    min_confidence: 0.6
+  fvg_agent:
+    enabled: true
+    min_confidence: 0.6
+
+regime_engine:
+  # Conservative thresholds
+  adx_trending_min: 25.0  # Higher than default
+  hurst_mean_reversion_max: 0.40  # Stricter
+  hurst_trend_min: 0.60  # Stricter
+  min_confidence_threshold: 0.5  # Higher confidence required
+
+risk:
+  # VERY CONSERVATIVE RISK LIMITS
+  max_daily_loss_pct: 0.02  # 2% daily loss limit (lower than default 3%)
+  max_loss_streak: 3  # Lower than default 5
+  max_position_size_pct: 0.05  # 5% max position (VERY conservative)
+  min_confidence_threshold: 0.5
+  kill_switch: false  # Start with kill switch OFF (enable manually when ready)
+
+  # Advanced Risk Settings
+  advanced_risk:
+    enable_volatility_scaling: true
+    vol_scaling_factor: 0.6  # More aggressive scaling down in high vol
+    max_drawdown_pct: 0.10  # 10% hard stop (lower than default 15%)
+    soft_drawdown_pct: 0.07  # 7% soft stop
+    enable_circuit_breakers: true
+    max_losses_in_window: 3  # Very sensitive
+    loss_window_size: 10
+    circuit_breaker_cooldown: 100  # Long cooldown
+    trend_max_position_pct: 0.05  # 5% max in trends
+    mean_reversion_max_position_pct: 0.03  # 3% max in MR
+    compression_max_position_pct: 0.02  # 2% max in compression
+    expansion_max_position_pct: 0.04  # 4% max in expansion
+    daily_loss_limit_pct: 0.02  # 2% daily limit
+    max_symbol_exposure_pct: 0.05  # 5% per symbol
+
+execution:
+  slippage_bps: 5  # 5 bps slippage
+  commission_per_share: 0.005
+  min_order_size: 1.0
+
+backtest:
+  initial_capital: 100000.0
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+
+live:
+  broker_type: "ibkr"  # "paper", "ibkr", or "alpaca"
+  symbols: ["QQQ"]  # ONE symbol only
+  bar_interval_seconds: 60  # 1 minute bars
+  adaptation_frequency: 20  # Update weights every 20 bars (less frequent)
+  state_save_frequency: 50  # Save state every 50 bars
+  enable_advanced_risk: true
+  log_events: true
+  event_log_file: "logs/trading_events.jsonl"
+  # IBKR connection settings
+  ibkr:
+    host: "127.0.0.1"
+    port: 7497  # 7497 for paper, 7496 for live
+    client_id: 1
+    account_id: null  # null = use first account
+
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/futbot.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+

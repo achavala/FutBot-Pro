@@ -1,0 +1,108 @@
+app:
+  environment: "development"
+  log_level: "INFO"
+  data_path: "/Users/chavala/FutBot/data"
+
+data:
+  default_symbol: "QQQ"
+  default_timeframe: "1Min"
+  bar_lookback: 500
+  cache:
+    backend: "sqlite"
+    path: "/Users/chavala/FutBot/data/cache.db"
+
+polygon:
+  api_key: "jYAUGrzcdiRWvR8ibZDkybyWKS9uG2ep"
+  rest_url: "https://api.polygon.io"
+  rate_limit_per_min: 5
+
+finnhub:
+  api_key: "YOUR_FINNHUB_KEY"
+  rest_url: "https://finnhub.io/api/v1"
+  sentiment_min_score: 0.2
+
+agents:
+  trend:
+    min_adx: 25
+    min_regression_slope: 0.1
+    min_vol_expansion: 1.1
+  mean_reversion:
+    max_adx: 20
+    max_hurst: 0.45
+    min_vol_contraction: 0.9
+  event_spike:
+    sentiment_threshold: 0.6
+    atr_multiplier: 2.5
+    displacement_threshold: 1.8
+
+regime_engine:
+  lookback_window: 120
+  volatility_window: 30
+  confidence_threshold: 0.6
+
+risk:
+  max_daily_loss_pct: 3.0
+  max_loss_streak: 4
+  cvar_lookback: 50
+  kill_switch: false
+
+execution:
+  default_order_size: 100
+  slippage_bps: 1.5
+  slippage_range_pct: 0.05
+
+backtest:
+  db_path: "/Users/chavala/FutBot/data/backtests.db"
+  trade_log_path: "/Users/chavala/FutBot/data/trade_logs"
+
+# Asset profiles for symbols
+# Each symbol can have custom risk parameters
+symbols:
+  QQQ:
+    asset_type: equity
+    risk_per_trade_pct: 1.0
+    take_profit_pct: 0.30
+    stop_loss_pct: 0.20
+    trailing_stop_pct: 1.5
+    min_hold_bars: 5
+    max_hold_bars: 200
+    fixed_investment_amount: 1000.0
+    exit_on_regime_change: true
+    exit_on_bias_flip: true
+  
+  SPY:
+    asset_type: equity
+    risk_per_trade_pct: 1.0
+    take_profit_pct: 0.30
+    stop_loss_pct: 0.20
+    trailing_stop_pct: 1.5
+    min_hold_bars: 5
+    max_hold_bars: 200
+    fixed_investment_amount: 1000.0
+    exit_on_regime_change: true
+    exit_on_bias_flip: true
+  
+  BTC/USD:
+    asset_type: crypto
+    risk_per_trade_pct: 0.5  # Lower risk for crypto (more volatile)
+    take_profit_pct: 0.50  # Higher profit target for crypto
+    stop_loss_pct: 0.25  # Tighter stop loss for crypto
+    trailing_stop_pct: 2.0
+    min_hold_bars: 5
+    max_hold_bars: 200
+    fixed_investment_amount: 1000.0
+    exit_on_regime_change: true
+    exit_on_bias_flip: true
+  
+  ETH/USD:
+    asset_type: crypto
+    risk_per_trade_pct: 0.5
+    take_profit_pct: 0.50
+    stop_loss_pct: 0.25
+    trailing_stop_pct: 2.0
+    min_hold_bars: 5
+    max_hold_bars: 200
+    fixed_investment_amount: 1000.0
+    exit_on_regime_change: true
+    exit_on_bias_flip: true
+

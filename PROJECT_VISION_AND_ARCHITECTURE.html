@@ -1,0 +1,920 @@
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FutBot: Project Vision & Architecture</title>
+        
+    <style>
+        @media print {
+            @page {
+                size: A4;
+                margin: 2cm;
+            }
+            
+            body {
+                font-size: 11pt;
+            }
+            
+            h1 {
+                page-break-after: avoid;
+            }
+            
+            h2, h3 {
+                page-break-after: avoid;
+            }
+            
+            pre {
+                page-break-inside: avoid;
+            }
+            
+            table {
+                page-break-inside: avoid;
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 30px;
+            font-size: 2.2em;
+        }
+        
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+            margin-top: 25px;
+            font-size: 1.8em;
+        }
+        
+        h3 {
+            color: #555;
+            margin-top: 20px;
+            font-size: 1.4em;
+        }
+        
+        h4 {
+            color: #666;
+            margin-top: 15px;
+            font-size: 1.2em;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #e74c3c;
+        }
+        
+        pre {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+        
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #333;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            margin-left: 0;
+            padding-left: 20px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .toc {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .toc ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        
+        .toc li {
+            margin: 8px 0;
+        }
+        
+        .toc a {
+            color: #2c3e50;
+            font-weight: 500;
+        }
+        
+        hr {
+            border: none;
+            border-top: 2px solid #ecf0f1;
+            margin: 30px 0;
+        }
+        
+        strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 3px solid #3498db;
+        }
+        
+        .header h1 {
+            border: none;
+            font-size: 36pt;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .header h2 {
+            border: none;
+            font-size: 20pt;
+            color: #7f8c8d;
+            font-weight: normal;
+        }
+        
+        .header p {
+            color: #95a5a6;
+            margin-top: 20px;
+            font-size: 14pt;
+        }
+        
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 2px solid #ecf0f1;
+            text-align: center;
+            color: #95a5a6;
+            font-size: 0.9em;
+        }
+        
+        .print-instructions {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 30px;
+            color: #856404;
+        }
+        
+        .print-instructions strong {
+            color: #856404;
+        }
+    </style>
+    
+    </head>
+    <body>
+        <div class="print-instructions">
+            <strong>📄 To Save as PDF:</strong> Open this file in your browser, then go to <strong>File > Print</strong> 
+            and select <strong>"Save as PDF"</strong> as the destination. Make sure to check "Background graphics" 
+            in print settings for best results.
+        </div>
+        
+        <div class="header">
+            <h1>FutBot</h1>
+            <h2>Project Vision, Technical Architecture & Achievements</h2>
+            <p>Production-Grade Regime-Aware Trading System</p>
+        </div>
+        
+        <h1 id="futbot-project-vision-technical-architecture-achievements">FutBot: Project Vision, Technical Architecture &amp; Achievements</h1>
+<h2 id="table-of-contents">📋 Table of Contents</h2>
+<ol>
+<li><a href="#project-vision">Project Vision</a></li>
+<li><a href="#technical-architecture">Technical Architecture</a></li>
+<li><a href="#system-flow">System Flow</a></li>
+<li><a href="#component-details">Component Details</a></li>
+<li><a href="#what-were-achieving">What We're Achieving</a></li>
+<li><a href="#future-roadmap">Future Roadmap</a></li>
+</ol>
+<hr />
+<h2 id="project-vision">🎯 Project Vision</h2>
+<h3 id="mission-statement">Mission Statement</h3>
+<p><strong>FutBot</strong> is a production-grade, regime-aware trading system that adapts to changing market conditions using multi-agent decision making and reinforcement-style learning. Unlike traditional trading bots that rely on simple technical indicators, FutBot employs sophisticated market regime classification to activate specialized trading agents, ensuring optimal strategy selection for each market environment.</p>
+<h3 id="core-philosophy">Core Philosophy</h3>
+<ul>
+<li><strong>Regime-Aware</strong>: The system recognizes that markets operate in distinct regimes (trend, mean-reversion, volatility expansion, etc.) and adapts accordingly</li>
+<li><strong>Multi-Agent Architecture</strong>: Specialized agents excel in specific market conditions, rather than one-size-fits-all strategies</li>
+<li><strong>Self-Tuning</strong>: The system learns and adapts agent weights based on performance, creating a feedback loop that improves over time</li>
+<li><strong>Deterministic &amp; Testable</strong>: All decisions are deterministic and fully testable, ensuring reproducibility and reliability</li>
+<li><strong>Production-Ready</strong>: Built with proper risk management, error handling, and monitoring capabilities</li>
+</ul>
+<h3 id="key-differentiators">Key Differentiators</h3>
+<ol>
+<li><strong>Not a Simple EMA/RSI Bot</strong>: Uses advanced statistical features (Hurst exponent, ADX, GARCH volatility, regression analysis)</li>
+<li><strong>Regime Classification</strong>: Employs Hidden Markov Model (HMM) concepts and statistical thresholds to classify market regimes</li>
+<li><strong>Meta-Policy Controller</strong>: Uses multi-armed bandit (Thompson Sampling) to intelligently combine agent signals</li>
+<li><strong>Adaptive Learning</strong>: Agent weights evolve based on performance, creating a self-improving system</li>
+<li><strong>Cost-Effective</strong>: Designed to work with affordable data sources (Polygon.io $19/mo, Finnhub free tier)</li>
+</ol>
+<hr />
+<h2 id="technical-architecture">🏗️ Technical Architecture</h2>
+<h3 id="high-level-system-architecture">High-Level System Architecture</h3>
+<div class="codehilite"><pre><span></span><code><span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                         </span><span class="nx">DATA</span><span class="w"> </span><span class="nx">LAYER</span><span class="w">                                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">Polygon</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">Finnhub</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">Alpaca</span><span class="o">/</span><span class="w">    </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="nx">min</span><span class="p">)</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="p">(</span><span class="nx">News</span><span class="o">/</span><span class="nx">Sent</span><span class="p">)</span><span class="w"> </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">IBKR</span><span class="w">      </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">└─────────┼─────────────────┼──────────────────┼─────────────────────┘</span>
+<span class="w">          </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span>
+<span class="w">          </span><span class="err">▼</span><span class="w">                 </span><span class="err">▼</span><span class="w">                  </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                      </span><span class="nx">FEATURE</span><span class="w"> </span><span class="nx">ENGINE</span><span class="w">                                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="nx">Technical</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Statistical</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">FVG</span><span class="w">        </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="nx">Indicators</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="nx">Features</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="nx">Detection</span><span class="w">   </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">EMA</span><span class="o">/</span><span class="nx">SMA</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Hurst</span><span class="w"> </span><span class="nx">Exp</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Gap</span><span class="w">        </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">RSI</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">ADX</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Fill</span><span class="w">       </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">ATR</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Regression</span><span class="w"> </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Midpoint</span><span class="w">   </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">VWAP</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">GARCH</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">└─────────┼─────────────────┼──────────────────┼─────────────────────┘</span>
+<span class="w">          </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span>
+<span class="w">          </span><span class="err">└─────────────────┼──────────────────┘</span>
+<span class="w">                            </span><span class="err">│</span>
+<span class="w">                            </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                    </span><span class="nx">REGIME</span><span class="w"> </span><span class="nx">CLASSIFICATION</span><span class="w"> </span><span class="nx">ENGINE</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="nx">Input</span><span class="p">:</span><span class="w"> </span><span class="nx">Features</span><span class="w"> </span><span class="p">(</span><span class="nx">ADX</span><span class="p">,</span><span class="w"> </span><span class="nx">Hurst</span><span class="p">,</span><span class="w"> </span><span class="nx">Slope</span><span class="p">,</span><span class="w"> </span><span class="nx">ATR</span><span class="p">,</span><span class="w"> </span><span class="nx">VWAP</span><span class="p">,</span><span class="w"> </span><span class="nx">FVGs</span><span class="p">)</span><span class="w">              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="nx">Output</span><span class="p">:</span><span class="w"> </span><span class="nx">RegimeSignal</span><span class="w"> </span><span class="p">{</span><span class="w">                                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">regime_type</span><span class="p">:</span><span class="w"> </span><span class="nx">TREND</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">MEAN_REVERSION</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">EXPANSION</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">COMPRESSION</span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">trend_direction</span><span class="p">:</span><span class="w"> </span><span class="nx">UP</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DOWN</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">SIDEWAYS</span><span class="w">                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">volatility_level</span><span class="p">:</span><span class="w"> </span><span class="nx">LOW</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">MEDIUM</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">HIGH</span><span class="w">                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">bias</span><span class="p">:</span><span class="w"> </span><span class="nx">BULLISH</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">BEARISH</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">NEUTRAL</span><span class="w">                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">confidence</span><span class="p">:</span><span class="w"> </span><span class="m m-Double">0.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="m m-Double">1.0</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">    </span><span class="err">•</span><span class="w"> </span><span class="nx">active_fvg</span><span class="p">:</span><span class="w"> </span><span class="nx">FairValueGap</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">None</span><span class="w">                              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="p">}</span><span class="w">                                                                 </span><span class="err">│</span>
+<span class="err">└─────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                              </span><span class="err">│</span>
+<span class="w">                              </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                      </span><span class="nx">MULTI</span><span class="o">-</span><span class="nx">AGENT</span><span class="w"> </span><span class="nx">SYSTEM</span><span class="w">                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Trend</span><span class="w"> </span><span class="nx">Agent</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Mean</span><span class="w"> </span><span class="nx">Rev</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Volatility</span><span class="w">   </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Agent</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Agent</span><span class="w">        </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Breakouts</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">FVG</span><span class="w"> </span><span class="nx">Fill</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Expansion</span><span class="w">  </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Momentum</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">RSI</span><span class="w"> </span><span class="nx">Extr</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Compression</span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">ADX</span><span class="w"> </span><span class="nx">Rising</span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">EMA</span><span class="w"> </span><span class="nx">Retest</span><span class="w"> </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">ATR</span><span class="w"> </span><span class="nx">Spike</span><span class="w">  </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────┴─────────────────┴──────────────────┴───────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="nx">FVG</span><span class="w"> </span><span class="nx">Agent</span><span class="w">                              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">•</span><span class="w"> </span><span class="nx">Fair</span><span class="w"> </span><span class="nx">Value</span><span class="w"> </span><span class="nx">Gap</span><span class="w"> </span><span class="nx">Detection</span><span class="w">                         </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">•</span><span class="w"> </span><span class="nx">Gap</span><span class="w"> </span><span class="nx">Fill</span><span class="w"> </span><span class="nx">Strategies</span><span class="w">                              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└───────────────────────┬────────────────────────────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">└───────────────────────────┼────────────────────────────────────────┘</span>
+<span class="w">                            </span><span class="err">│</span>
+<span class="w">                            </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                  </span><span class="nx">META</span><span class="o">-</span><span class="nx">POLICY</span><span class="w"> </span><span class="nx">CONTROLLER</span><span class="w">                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mi">1</span><span class="p">.</span><span class="w"> </span><span class="nx">Collect</span><span class="w"> </span><span class="nx">Intents</span><span class="w"> </span><span class="nx">from</span><span class="w"> </span><span class="nx">all</span><span class="w"> </span><span class="nx">agents</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mi">2</span><span class="p">.</span><span class="w"> </span><span class="nx">Filter</span><span class="w"> </span><span class="nx">by</span><span class="w"> </span><span class="nx">regime</span><span class="w"> </span><span class="nx">compatibility</span><span class="w">                                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mi">3</span><span class="p">.</span><span class="w"> </span><span class="nx">Score</span><span class="w"> </span><span class="nx">intents</span><span class="w"> </span><span class="p">(</span><span class="nx">agent_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="nx">regime_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="nx">confidence</span><span class="p">)</span><span class="w">      </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mi">4</span><span class="p">.</span><span class="w"> </span><span class="nx">Arbitrate</span><span class="w"> </span><span class="p">(</span><span class="nx">blend</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="nx">select</span><span class="w"> </span><span class="nx">best</span><span class="p">)</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mi">5</span><span class="p">.</span><span class="w"> </span><span class="nx">Output</span><span class="p">:</span><span class="w"> </span><span class="nx">FinalTradeIntent</span><span class="w"> </span><span class="p">{</span><span class="w">                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">       </span><span class="err">•</span><span class="w"> </span><span class="nx">symbol</span><span class="p">,</span><span class="w"> </span><span class="nx">direction</span><span class="p">,</span><span class="w"> </span><span class="nx">size</span><span class="p">,</span><span class="w"> </span><span class="nx">confidence</span><span class="w">                         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="p">}</span><span class="w">                                                               </span><span class="err">│</span>
+<span class="err">└─────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                              </span><span class="err">│</span>
+<span class="w">                              </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                      </span><span class="nx">RISK</span><span class="w"> </span><span class="nx">MANAGEMENT</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Basic</span><span class="w"> </span><span class="nx">Risk</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Advanced</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Position</span><span class="w">     </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Manager</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Risk</span><span class="w"> </span><span class="nx">Manager</span><span class="w"> </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Sizing</span><span class="w">       </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Max</span><span class="w"> </span><span class="nx">Pos</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Daily</span><span class="w"> </span><span class="nx">Loss</span><span class="w"> </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">CVaR</span><span class="o">-</span><span class="nx">based</span><span class="w"> </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Kill</span><span class="w"> </span><span class="nx">Switch</span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Drawdown</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Volatility</span><span class="w"> </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Streak</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">Scaling</span><span class="w">    </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">└─────────┼─────────────────┼──────────────────┼─────────────────────┘</span>
+<span class="w">          </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span>
+<span class="w">          </span><span class="err">└─────────────────┼──────────────────┘</span>
+<span class="w">                            </span><span class="err">│</span>
+<span class="w">                            </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                      </span><span class="nx">EXECUTION</span><span class="w"> </span><span class="nx">LAYER</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Paper</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Alpaca</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">IBKR</span><span class="w">         </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Trading</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Broker</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Broker</span><span class="w">       </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="p">(</span><span class="nx">Simulated</span><span class="p">)</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Client</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Client</span><span class="w">       </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">└─────────┼─────────────────┼──────────────────┼─────────────────────┘</span>
+<span class="w">          </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span>
+<span class="w">          </span><span class="err">└─────────────────┼──────────────────┘</span>
+<span class="w">                            </span><span class="err">│</span>
+<span class="w">                            </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                    </span><span class="nx">REWARD</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="nx">ADAPTATION</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Reward</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Policy</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Portfolio</span><span class="w">    </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Tracker</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Adaptor</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Manager</span><span class="w">     </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">             </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">P</span><span class="o">&amp;</span><span class="nx">L</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Weight</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Positions</span><span class="w"> </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Sharpe</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">   </span><span class="nx">Evolution</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Equity</span><span class="w">    </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Win</span><span class="w"> </span><span class="nx">Rate</span><span class="w">   </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Fitness</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Cash</span><span class="w">      </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">  </span><span class="err">└──────┬───────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span><span class="w">                     </span><span class="err">│</span>
+<span class="err">└─────────┼─────────────────┼──────────────────┼─────────────────────┘</span>
+<span class="w">          </span><span class="err">│</span><span class="w">                 </span><span class="err">│</span><span class="w">                  </span><span class="err">│</span>
+<span class="w">          </span><span class="err">└─────────────────┼──────────────────┘</span>
+<span class="w">                            </span><span class="err">│</span>
+<span class="w">                            </span><span class="err">▼</span>
+<span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                      </span><span class="nx">MONITORING</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="nx">CONTROL</span><span class="w">                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">  </span><span class="err">┌──────────────┐</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">FastAPI</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">State</span><span class="w"> </span><span class="nx">Store</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Event</span><span class="w"> </span><span class="nx">Logger</span><span class="w"> </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Control</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="p">(</span><span class="nx">JSON</span><span class="p">)</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="p">(</span><span class="nx">JSONL</span><span class="p">)</span><span class="w">      </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="nx">Panel</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="o">/</span><span class="nx">start</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Persist</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Trade</span><span class="w"> </span><span class="nx">Log</span><span class="w">  </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="o">/</span><span class="nx">stop</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Restore</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Events</span><span class="w">     </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="o">/</span><span class="nx">stats</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">State</span><span class="w">      </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="nx">Errors</span><span class="w">     </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w"> </span><span class="err">•</span><span class="w"> </span><span class="o">/</span><span class="nx">regime</span><span class="w">    </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">  </span><span class="err">│</span><span class="w">              </span><span class="err">│</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="err">└──────────────┘</span><span class="w">  </span><span class="err">└──────────────┘</span><span class="w">  </span><span class="err">└──────────────┘</span><span class="w">            </span><span class="err">│</span>
+<span class="err">└─────────────────────────────────────────────────────────────────────┘</span>
+</code></pre></div>
+
+<hr />
+<h2 id="system-flow">🔄 System Flow</h2>
+<h3 id="complete-trading-decision-flow">Complete Trading Decision Flow</h3>
+<div class="codehilite"><pre><span></span><code><span class="err">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="err">│</span><span class="w">                    </span><span class="n">LIVE</span><span class="w"> </span><span class="n">TRADING</span><span class="w"> </span><span class="n">LOOP</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">1.</span><span class="w"> </span><span class="n">Data</span><span class="w"> </span><span class="n">Feed</span><span class="w"> </span><span class="n">Subscription</span><span class="w">                                          </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Connect</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">broker</span><span class="w"> </span><span class="p">(</span><span class="n">Alpaca</span><span class="o">/</span><span class="n">IBKR</span><span class="p">)</span><span class="w">                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Preload</span><span class="w"> </span><span class="mi">60</span><span class="w"> </span><span class="n">historical</span><span class="w"> </span><span class="n">bars</span><span class="w"> </span><span class="p">(</span><span class="k">for</span><span class="w"> </span><span class="n">feature</span><span class="w"> </span><span class="n">calculation</span><span class="p">)</span><span class="w">         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Subscribe</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">real</span><span class="o">-</span><span class="n">time</span><span class="w"> </span><span class="mi">1</span><span class="o">-</span><span class="n">minute</span><span class="w"> </span><span class="n">bars</span><span class="w">                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">2.</span><span class="w"> </span><span class="n">Bar</span><span class="w"> </span><span class="n">Arrival</span><span class="w"> </span><span class="p">(</span><span class="n">Every</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="n">Minute</span><span class="p">)</span><span class="w">                                   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Receive</span><span class="w"> </span><span class="n">new</span><span class="w"> </span><span class="n">bar</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="n">feed</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Add</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">bar</span><span class="w"> </span><span class="n">history</span><span class="w"> </span><span class="n">buffer</span><span class="w">                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Check</span><span class="p">:</span><span class="w"> </span><span class="n">Do</span><span class="w"> </span><span class="n">we</span><span class="w"> </span><span class="n">have</span><span class="w"> </span><span class="mi">50</span><span class="o">+</span><span class="w"> </span><span class="n">bars</span><span class="err">?</span><span class="w"> </span><span class="p">(</span><span class="n">minimum</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">reliable</span><span class="w"> </span><span class="n">features</span><span class="p">)</span><span class="w"> </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">3.</span><span class="w"> </span><span class="n">Feature</span><span class="w"> </span><span class="n">Calculation</span><span class="w">                                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Technical</span><span class="w"> </span><span class="n">Indicators</span><span class="p">:</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">EMA</span><span class="p">(</span><span class="mi">9</span><span class="p">),</span><span class="w"> </span><span class="n">SMA</span><span class="p">(</span><span class="mi">20</span><span class="p">),</span><span class="w"> </span><span class="n">RSI</span><span class="p">(</span><span class="mi">14</span><span class="p">),</span><span class="w"> </span><span class="n">ATR</span><span class="p">(</span><span class="mi">14</span><span class="p">),</span><span class="w"> </span><span class="n">ADX</span><span class="p">(</span><span class="mi">14</span><span class="p">),</span><span class="w"> </span><span class="n">VWAP</span><span class="w">         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Statistical</span><span class="w"> </span><span class="n">Features</span><span class="p">:</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Hurst</span><span class="w"> </span><span class="n">Exponent</span><span class="w"> </span><span class="p">(</span><span class="n">mean</span><span class="o">-</span><span class="n">reversion</span><span class="w"> </span><span class="n">vs</span><span class="w"> </span><span class="n">trending</span><span class="p">)</span><span class="w">                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Linear</span><span class="w"> </span><span class="n">Regression</span><span class="w"> </span><span class="n">Slope</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">R²</span><span class="w">                              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">GARCH</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="n">Model</span><span class="w">                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">VWAP</span><span class="w"> </span><span class="n">Deviation</span><span class="w">                                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">FVG</span><span class="w"> </span><span class="n">Detection</span><span class="p">:</span><span class="w">                                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Identify</span><span class="w"> </span><span class="n">Fair</span><span class="w"> </span><span class="n">Value</span><span class="w"> </span><span class="n">Gaps</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">price</span><span class="w"> </span><span class="n">action</span><span class="w">                   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Track</span><span class="w"> </span><span class="n">active</span><span class="w"> </span><span class="n">FVGs</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">fill</span><span class="w"> </span><span class="n">status</span><span class="w">                         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">4.</span><span class="w"> </span><span class="n">Regime</span><span class="w"> </span><span class="n">Classification</span><span class="w">                                           </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">RegimeEngine</span><span class="w"> </span><span class="n">analyzes</span><span class="w"> </span><span class="n">features</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Determines</span><span class="p">:</span><span class="w">                                                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Regime</span><span class="w"> </span><span class="n">Type</span><span class="p">:</span><span class="w"> </span><span class="n">TREND</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">MEAN_REVERSION</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">EXPANSION</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">COMP</span><span class="w">   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Trend</span><span class="w"> </span><span class="n">Direction</span><span class="p">:</span><span class="w"> </span><span class="n">UP</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">DOWN</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">SIDEWAYS</span><span class="w">                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="n">Level</span><span class="p">:</span><span class="w"> </span><span class="n">LOW</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">MEDIUM</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">HIGH</span><span class="w">                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Market</span><span class="w"> </span><span class="n">Bias</span><span class="p">:</span><span class="w"> </span><span class="n">BULLISH</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">BEARISH</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">NEUTRAL</span><span class="w">                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Confidence</span><span class="w"> </span><span class="n">Score</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1.0</span><span class="w">                              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Output</span><span class="p">:</span><span class="w"> </span><span class="n">RegimeSignal</span><span class="w">                                         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">5.</span><span class="w"> </span><span class="n">Agent</span><span class="w"> </span><span class="n">Evaluation</span><span class="w">                                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">TrendAgent</span><span class="p">:</span><span class="w">                                                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Activates</span><span class="w"> </span><span class="n">when</span><span class="p">:</span><span class="w"> </span><span class="n">regime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TREND</span><span class="p">,</span><span class="w"> </span><span class="n">confidence</span><span class="w"> </span><span class="err">≥</span><span class="w"> </span><span class="n">threshold</span><span class="w">    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Signals</span><span class="p">:</span><span class="w"> </span><span class="n">Breakouts</span><span class="p">,</span><span class="w"> </span><span class="n">momentum</span><span class="w"> </span><span class="n">continuation</span><span class="w">                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Uses</span><span class="p">:</span><span class="w"> </span><span class="n">EMA</span><span class="w"> </span><span class="n">crossovers</span><span class="p">,</span><span class="w"> </span><span class="n">ADX</span><span class="w"> </span><span class="n">rising</span><span class="p">,</span><span class="w"> </span><span class="n">VWAP</span><span class="w"> </span><span class="n">anchors</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">MeanReversionAgent</span><span class="p">:</span><span class="w">                                          </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Activates</span><span class="w"> </span><span class="n">when</span><span class="p">:</span><span class="w"> </span><span class="n">regime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MEAN_REVERSION</span><span class="p">,</span><span class="w"> </span><span class="n">confidence</span><span class="w"> </span><span class="err">≥</span><span class="w"> </span><span class="n">th</span><span class="w">  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Signals</span><span class="p">:</span><span class="w"> </span><span class="n">FVG</span><span class="w"> </span><span class="n">fills</span><span class="p">,</span><span class="w"> </span><span class="n">RSI</span><span class="w"> </span><span class="n">extremes</span><span class="p">,</span><span class="w"> </span><span class="n">EMA</span><span class="w"> </span><span class="n">retests</span><span class="w">             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Uses</span><span class="p">:</span><span class="w"> </span><span class="mi">9</span><span class="n">EMA</span><span class="p">,</span><span class="w"> </span><span class="n">RSI</span><span class="p">,</span><span class="w"> </span><span class="n">FVG</span><span class="w"> </span><span class="n">detection</span><span class="p">,</span><span class="w"> </span><span class="n">premium</span><span class="w"> </span><span class="n">entry</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">VolatilityAgent</span><span class="p">:</span><span class="w">                                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Activates</span><span class="w"> </span><span class="n">when</span><span class="p">:</span><span class="w"> </span><span class="n">regime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">EXPANSION</span><span class="w">                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Signals</span><span class="p">:</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="n">breakouts</span><span class="p">,</span><span class="w"> </span><span class="n">ATR</span><span class="w"> </span><span class="n">spikes</span><span class="w">                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">FVGAgent</span><span class="p">:</span><span class="w">                                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Activates</span><span class="w"> </span><span class="n">when</span><span class="p">:</span><span class="w"> </span><span class="n">Active</span><span class="w"> </span><span class="n">FVG</span><span class="w"> </span><span class="n">exists</span><span class="p">,</span><span class="w"> </span><span class="n">price</span><span class="w"> </span><span class="n">near</span><span class="w"> </span><span class="n">midpoint</span><span class="w">    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Signals</span><span class="p">:</span><span class="w"> </span><span class="n">Gap</span><span class="w"> </span><span class="n">fill</span><span class="w"> </span><span class="n">trades</span><span class="w">                                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">6.</span><span class="w"> </span><span class="n">Meta</span><span class="o">-</span><span class="n">Policy</span><span class="w"> </span><span class="n">Controller</span><span class="w">                                          </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Collect</span><span class="w"> </span><span class="n">Intents</span><span class="p">:</span><span class="w"> </span><span class="n">Gather</span><span class="w"> </span><span class="n">all</span><span class="w"> </span><span class="n">agent</span><span class="w"> </span><span class="n">trade</span><span class="w"> </span><span class="n">intents</span><span class="w">             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Filter</span><span class="w"> </span><span class="n">Intents</span><span class="p">:</span><span class="w">                                              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Regime</span><span class="w"> </span><span class="n">compatibility</span><span class="w"> </span><span class="n">check</span><span class="w">                                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Confidence</span><span class="w"> </span><span class="n">minimums</span><span class="w">                                       </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Direction</span><span class="w"> </span><span class="n">conflicts</span><span class="w">                                       </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Score</span><span class="w"> </span><span class="n">Intents</span><span class="p">:</span><span class="w">                                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">score</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">agent_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="n">regime_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="n">confidence</span><span class="w">        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Adaptive</span><span class="w"> </span><span class="n">weights</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">PolicyAdaptor</span><span class="w">                       </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Arbitrate</span><span class="p">:</span><span class="w">                                                   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Blend</span><span class="w"> </span><span class="n">intents</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">scores</span><span class="w"> </span><span class="n">are</span><span class="w"> </span><span class="n">close</span><span class="w"> </span><span class="p">(</span><span class="n">within</span><span class="w"> </span><span class="mi">5</span><span class="o">%</span><span class="p">)</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Select</span><span class="w"> </span><span class="n">best</span><span class="w"> </span><span class="n">intent</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">scores</span><span class="w"> </span><span class="n">differ</span><span class="w"> </span><span class="n">significantly</span><span class="w">         </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Output</span><span class="p">:</span><span class="w"> </span><span class="n">FinalTradeIntent</span><span class="w"> </span><span class="p">{</span><span class="w">                                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">           </span><span class="err">•</span><span class="w"> </span><span class="n">symbol</span><span class="p">,</span><span class="w"> </span><span class="n">direction</span><span class="w"> </span><span class="p">(</span><span class="n">LONG</span><span class="o">/</span><span class="n">SHORT</span><span class="o">/</span><span class="n">FLAT</span><span class="p">),</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">confidence</span><span class="w">   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="p">}</span><span class="w">                                                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">7.</span><span class="w"> </span><span class="n">Risk</span><span class="w"> </span><span class="n">Management</span><span class="w"> </span><span class="n">Check</span><span class="w">                                           </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Basic</span><span class="w"> </span><span class="n">Risk</span><span class="w"> </span><span class="n">Manager</span><span class="p">:</span><span class="w">                                          </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Max</span><span class="w"> </span><span class="n">position</span><span class="w"> </span><span class="n">size</span><span class="w"> </span><span class="n">check</span><span class="w">                                   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Kill</span><span class="w"> </span><span class="n">switch</span><span class="w"> </span><span class="n">status</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Advanced</span><span class="w"> </span><span class="n">Risk</span><span class="w"> </span><span class="n">Manager</span><span class="p">:</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Daily</span><span class="w"> </span><span class="n">loss</span><span class="w"> </span><span class="n">limit</span><span class="w"> </span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">g</span><span class="o">.</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="mi">2</span><span class="o">%</span><span class="w"> </span><span class="n">of</span><span class="w"> </span><span class="n">capital</span><span class="p">)</span><span class="w">                  </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Maximum</span><span class="w"> </span><span class="n">drawdown</span><span class="w"> </span><span class="n">limit</span><span class="w">                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Loss</span><span class="w"> </span><span class="n">streak</span><span class="w"> </span><span class="n">limit</span><span class="w"> </span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">g</span><span class="o">.</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="n">consecutive</span><span class="w"> </span><span class="n">losses</span><span class="p">)</span><span class="w">           </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Circuit</span><span class="w"> </span><span class="n">breakers</span><span class="w">                                          </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Position</span><span class="w"> </span><span class="n">Sizing</span><span class="p">:</span><span class="w">                                             </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">CVaR</span><span class="o">-</span><span class="n">based</span><span class="w"> </span><span class="n">sizing</span><span class="w"> </span><span class="p">(</span><span class="n">Conditional</span><span class="w"> </span><span class="n">Value</span><span class="w"> </span><span class="n">at</span><span class="w"> </span><span class="n">Risk</span><span class="p">)</span><span class="w">            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="n">scaling</span><span class="w">                                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Regime</span><span class="o">-</span><span class="n">aware</span><span class="w"> </span><span class="n">position</span><span class="w"> </span><span class="n">caps</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Decision</span><span class="p">:</span><span class="w"> </span><span class="n">ALLOW</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">BLOCK</span><span class="w">                                      </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">8.</span><span class="w"> </span><span class="n">Trade</span><span class="w"> </span><span class="n">Execution</span><span class="w"> </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="n">all</span><span class="w"> </span><span class="n">checks</span><span class="w"> </span><span class="k">pass</span><span class="p">)</span><span class="w">                            </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Submit</span><span class="w"> </span><span class="n">order</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">broker</span><span class="w"> </span><span class="p">(</span><span class="n">Alpaca</span><span class="o">/</span><span class="n">IBKR</span><span class="p">)</span><span class="w">                        </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Track</span><span class="w"> </span><span class="n">position</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">PortfolioManager</span><span class="w">                           </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">Log</span><span class="w"> </span><span class="n">trade</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">EventLogger</span><span class="w">                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">Update</span><span class="w"> </span><span class="n">state</span><span class="w">                                                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">│</span><span class="w">  </span><span class="mf">9.</span><span class="w"> </span><span class="n">Reward</span><span class="w"> </span><span class="n">Tracking</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">Adaptation</span><span class="w">                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">RewardTracker</span><span class="p">:</span><span class="w">                                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Calculate</span><span class="w"> </span><span class="n">P</span><span class="o">&amp;</span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="n">Sharpe</span><span class="w"> </span><span class="n">ratio</span><span class="p">,</span><span class="w"> </span><span class="n">win</span><span class="w"> </span><span class="n">rate</span><span class="w">                      </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Track</span><span class="w"> </span><span class="n">performance</span><span class="w"> </span><span class="n">by</span><span class="w"> </span><span class="n">regime</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">├─</span><span class="w"> </span><span class="n">PolicyAdaptor</span><span class="w"> </span><span class="p">(</span><span class="n">every</span><span class="w"> </span><span class="n">N</span><span class="w"> </span><span class="n">bars</span><span class="p">):</span><span class="w">                                </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Update</span><span class="w"> </span><span class="n">agent</span><span class="w"> </span><span class="n">fitness</span><span class="w"> </span><span class="n">scores</span><span class="w">                               </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Evolve</span><span class="w"> </span><span class="n">agent</span><span class="w"> </span><span class="n">weights</span><span class="w"> </span><span class="n">based</span><span class="w"> </span><span class="n">on</span><span class="w"> </span><span class="n">performance</span><span class="w">                 </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">│</span><span class="w">   </span><span class="err">•</span><span class="w"> </span><span class="n">Save</span><span class="w"> </span><span class="n">weights</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">config</span><span class="w">                                    </span><span class="err">│</span>
+<span class="err">│</span><span class="w">     </span><span class="err">└─</span><span class="w"> </span><span class="n">State</span><span class="w"> </span><span class="n">Persistence</span><span class="p">:</span><span class="w">                                           </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Save</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="n">every</span><span class="w"> </span><span class="n">N</span><span class="w"> </span><span class="n">bars</span><span class="w">                                   </span><span class="err">│</span>
+<span class="err">│</span><span class="w">         </span><span class="err">•</span><span class="w"> </span><span class="n">Enable</span><span class="w"> </span><span class="n">recovery</span><span class="w"> </span><span class="n">after</span><span class="w"> </span><span class="n">restart</span><span class="w">                              </span><span class="err">│</span>
+<span class="err">│</span><span class="w">                                                                     </span><span class="err">│</span>
+<span class="err">└─────────────────────────────────────────────────────────────────────┘</span>
+</code></pre></div>
+
+<h3 id="decision-tree-logic">Decision Tree Logic</h3>
+<div class="codehilite"><pre><span></span><code><span class="n">Bar</span><span class="w"> </span><span class="n">Arrives</span>
+<span class="w">    </span><span class="err">│</span>
+<span class="w">    </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Bar</span><span class="w"> </span><span class="n">Count</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">50</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Wait</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">more</span><span class="w"> </span><span class="n">bars</span>
+<span class="w">    </span><span class="err">│</span>
+<span class="w">    </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Bar</span><span class="w"> </span><span class="n">Count</span><span class="w"> </span><span class="err">≥</span><span class="w"> </span><span class="mi">50</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Calculate</span><span class="w"> </span><span class="n">Features</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                        </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                        </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Features</span><span class="w"> </span><span class="n">Invalid</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Skip</span><span class="w"> </span><span class="n">bar</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                        </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                        </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Features</span><span class="w"> </span><span class="n">Valid</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Classify</span><span class="w"> </span><span class="n">Regime</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Confidence</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.4</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">No</span><span class="w"> </span><span class="n">Trade</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Confidence</span><span class="w"> </span><span class="err">≥</span><span class="w"> </span><span class="mf">0.4</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Evaluate</span><span class="w"> </span><span class="n">Agents</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                      </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                      </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">No</span><span class="w"> </span><span class="n">Agent</span><span class="w"> </span><span class="n">Signals</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">No</span><span class="w"> </span><span class="n">Trade</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                      </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                      </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Agent</span><span class="w"> </span><span class="n">Signals</span><span class="w"> </span><span class="n">Exist</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Controller</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                              </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                              </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Filtered</span><span class="w"> </span><span class="n">Out</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">No</span><span class="w"> </span><span class="n">Trade</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                              </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                              </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Passes</span><span class="w"> </span><span class="n">Filter</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Score</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">Arbitrate</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                 </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                 </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Final</span><span class="w"> </span><span class="n">Confidence</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.4</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">No</span><span class="w"> </span><span class="n">Trade</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                 </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                 </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Final</span><span class="w"> </span><span class="n">Confidence</span><span class="w"> </span><span class="err">≥</span><span class="w"> </span><span class="mf">0.4</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Risk</span><span class="w"> </span><span class="n">Check</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                                              </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                                              </span><span class="err">├─</span><span class="w"> </span><span class="p">[</span><span class="n">Risk</span><span class="w"> </span><span class="n">Blocked</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">No</span><span class="w"> </span><span class="n">Trade</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                                              </span><span class="err">│</span>
+<span class="w">    </span><span class="err">│</span><span class="w">                                                                                                                                                              </span><span class="err">└─</span><span class="w"> </span><span class="p">[</span><span class="n">Risk</span><span class="w"> </span><span class="n">Allowed</span><span class="p">]</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Execute</span><span class="w"> </span><span class="n">Trade</span>
+</code></pre></div>
+
+<hr />
+<h2 id="component-details">🔧 Component Details</h2>
+<h3 id="1-regime-engine-coreregimeenginepy">1. Regime Engine (<code>core/regime/engine.py</code>)</h3>
+<p><strong>Purpose</strong>: Classify market conditions into distinct regimes using statistical features.</p>
+<p><strong>Key Features</strong>:
+- <strong>Trend Detection</strong>: Uses ADX (Average Directional Index), regression slope, and R²
+- <strong>Mean-Reversion Detection</strong>: Uses Hurst exponent (&lt; 0.45 indicates mean-reversion)
+- <strong>Volatility Classification</strong>: Uses ATR percentage to classify LOW/MEDIUM/HIGH volatility
+- <strong>FVG Integration</strong>: Incorporates Fair Value Gap information into regime classification
+- <strong>Confidence Scoring</strong>: Combines multiple signals to produce a confidence score (0.0 - 1.0)</p>
+<p><strong>Regime Types</strong>:
+1. <strong>TREND</strong>: High ADX, strong regression slope, expanding volatility
+2. <strong>MEAN_REVERSION</strong>: Low Hurst exponent, contracting volatility, VWAP deviation
+3. <strong>EXPANSION</strong>: High ATR, volatility spike
+4. <strong>COMPRESSION</strong>: Low ATR, volatility contraction</p>
+<p><strong>Output</strong>: <code>RegimeSignal</code> with regime_type, trend_direction, volatility_level, bias, confidence, active_fvg</p>
+<hr />
+<h3 id="2-multi-agent-system-coreagents">2. Multi-Agent System (<code>core/agents/</code>)</h3>
+<h4 id="trend-agent-trend_agentpy">Trend Agent (<code>trend_agent.py</code>)</h4>
+<ul>
+<li><strong>Activation</strong>: TREND regime with confidence ≥ threshold</li>
+<li><strong>Strategies</strong>: Breakouts, momentum continuation</li>
+<li><strong>Signals</strong>: EMA(9) crossovers, ADX rising, VWAP anchors</li>
+</ul>
+<h4 id="mean-reversion-agent-mean_reversion_agentpy">Mean Reversion Agent (<code>mean_reversion_agent.py</code>)</h4>
+<ul>
+<li><strong>Activation</strong>: MEAN_REVERSION regime with confidence ≥ threshold</li>
+<li><strong>Strategies</strong>: FVG fills, RSI extremes, EMA retests</li>
+<li><strong>Signals</strong>: Price near 9EMA, RSI oversold/overbought, FVG midpoint</li>
+</ul>
+<h4 id="volatility-agent-volatility_agentpy">Volatility Agent (<code>volatility_agent.py</code>)</h4>
+<ul>
+<li><strong>Activation</strong>: EXPANSION regime</li>
+<li><strong>Strategies</strong>: Volatility breakouts, ATR spikes</li>
+<li><strong>Signals</strong>: ATR expansion, volatility regime changes</li>
+</ul>
+<h4 id="fvg-agent-fvg_agentpy">FVG Agent (<code>fvg_agent.py</code>)</h4>
+<ul>
+<li><strong>Activation</strong>: Active FVG exists, price near midpoint</li>
+<li><strong>Strategies</strong>: Gap fill trades</li>
+<li><strong>Signals</strong>: FVG detection, fill probability</li>
+</ul>
+<hr />
+<h3 id="3-meta-policy-controller-corepolicycontrollerpy">3. Meta-Policy Controller (<code>core/policy/controller.py</code>)</h3>
+<p><strong>Purpose</strong>: Intelligently combine agent signals using multi-armed bandit principles.</p>
+<p><strong>Process</strong>:
+1. <strong>Collect Intents</strong>: Gather trade intents from all agents
+2. <strong>Filter</strong>: Remove incompatible intents (regime mismatch, low confidence, conflicts)
+3. <strong>Score</strong>: Calculate weighted scores using adaptive agent weights
+4. <strong>Arbitrate</strong>: Blend or select best intent based on score differences</p>
+<p><strong>Scoring Formula</strong>:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">score</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">agent_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="n">regime_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="n">volatility_weight</span><span class="w"> </span><span class="err">×</span><span class="w"> </span><span class="n">confidence</span>
+</code></pre></div>
+
+<p><strong>Adaptive Weights</strong>: Updated by <code>PolicyAdaptor</code> based on agent performance (fitness scores)</p>
+<hr />
+<h3 id="4-risk-management-corerisk">4. Risk Management (<code>core/risk/</code>)</h3>
+<h4 id="basic-risk-manager-managerpy">Basic Risk Manager (<code>manager.py</code>)</h4>
+<ul>
+<li>Maximum position size limits</li>
+<li>Kill switch functionality</li>
+<li>Basic position sizing</li>
+</ul>
+<h4 id="advanced-risk-manager-advancedpy">Advanced Risk Manager (<code>advanced.py</code>)</h4>
+<ul>
+<li><strong>Daily Loss Limit</strong>: Stops trading if daily loss exceeds threshold (e.g., -2%)</li>
+<li><strong>Drawdown Limit</strong>: Stops trading if drawdown exceeds threshold</li>
+<li><strong>Loss Streak Limit</strong>: Stops trading after N consecutive losses</li>
+<li><strong>Circuit Breakers</strong>: Automatic halt on extreme market conditions</li>
+<li><strong>CVaR-Based Sizing</strong>: Position sizing based on Conditional Value at Risk</li>
+<li><strong>Volatility Scaling</strong>: Adjust position size based on current volatility</li>
+<li><strong>Regime-Aware Caps</strong>: Different position limits for different regimes</li>
+</ul>
+<hr />
+<h3 id="5-policy-adaptation-corepolicy_adaptation">5. Policy Adaptation (<code>core/policy_adaptation/</code>)</h3>
+<p><strong>Purpose</strong>: Self-tuning system that evolves agent weights based on performance.</p>
+<p><strong>Process</strong>:
+1. <strong>Track Performance</strong>: RewardTracker monitors agent performance by regime
+2. <strong>Calculate Fitness</strong>: Compute fitness scores for each agent
+3. <strong>Evolve Weights</strong>: Update agent weights using evolution rules
+4. <strong>Save Weights</strong>: Persist weights to configuration file</p>
+<p><strong>Evolution Rules</strong>:
+- Agents with higher fitness scores get increased weights
+- Agents with lower fitness scores get decreased weights
+- Weights are normalized to maintain balance
+- Minimum/maximum weight bounds prevent extreme allocations</p>
+<hr />
+<h3 id="6-data-integration-services-corelive">6. Data Integration (<code>services/</code>, <code>core/live/</code>)</h3>
+<h4 id="polygon-client-servicespolygon_clientpy">Polygon Client (<code>services/polygon_client.py</code>)</h4>
+<ul>
+<li>Historical 1-minute bar data</li>
+<li>Real-time aggregates</li>
+<li>Local caching for performance</li>
+</ul>
+<h4 id="finnhub-client-servicesfinnhub_clientpy">Finnhub Client (<code>services/finnhub_client.py</code>)</h4>
+<ul>
+<li>News headlines</li>
+<li>Sentiment scoring</li>
+<li>Timestamped sentiment log</li>
+</ul>
+<h4 id="data-feed-corelivedata_feedpy">Data Feed (<code>core/live/data_feed.py</code>)</h4>
+<ul>
+<li><strong>BaseDataFeed</strong>: Abstract interface</li>
+<li><strong>AlpacaDataFeed</strong>: Alpaca API integration (supports delayed data for paper accounts)</li>
+<li><strong>IBKRDataFeed</strong>: Interactive Brokers integration</li>
+<li><strong>MockDataFeed</strong>: Testing/backtesting support</li>
+</ul>
+<h4 id="broker-clients-corelivebroker_clientpy">Broker Clients (<code>core/live/broker_client.py</code>)</h4>
+<ul>
+<li><strong>AlpacaBrokerClient</strong>: Alpaca trading API</li>
+<li><strong>IBKRBrokerClient</strong>: Interactive Brokers API</li>
+<li><strong>PaperBrokerClient</strong>: Simulated trading for testing</li>
+</ul>
+<hr />
+<h3 id="7-execution-layer-coreliveexecutor_livepy">7. Execution Layer (<code>core/live/executor_live.py</code>)</h3>
+<p><strong>Purpose</strong>: Execute trades through broker APIs.</p>
+<p><strong>Features</strong>:
+- Order submission (market, limit, stop-limit)
+- Order tracking and status updates
+- Fill reporting
+- Error handling and retry logic</p>
+<hr />
+<h3 id="8-portfolio-management-coreportfoliomanagerpy">8. Portfolio Management (<code>core/portfolio/manager.py</code>)</h3>
+<p><strong>Purpose</strong>: Track positions, equity, cash, and portfolio state.</p>
+<p><strong>Features</strong>:
+- Position tracking
+- Equity calculation
+- Cash management
+- P&amp;L tracking</p>
+<hr />
+<h3 id="9-reward-tracking-corereward">9. Reward Tracking (<code>core/reward/</code>)</h3>
+<h4 id="reward-tracker-trackerpy">Reward Tracker (<code>tracker.py</code>)</h4>
+<ul>
+<li>P&amp;L calculation</li>
+<li>Sharpe ratio</li>
+<li>Win rate</li>
+<li>Performance by regime</li>
+<li>Trade attribution</li>
+</ul>
+<h4 id="memory-store-memorypy">Memory Store (<code>memory.py</code>)</h4>
+<ul>
+<li>Rolling window of recent performance</li>
+<li>Agent fitness history</li>
+<li>Weight evolution tracking</li>
+</ul>
+<hr />
+<h3 id="10-backtesting-engine-backtesting">10. Backtesting Engine (<code>backtesting/</code>)</h3>
+<p><strong>Purpose</strong>: Test strategies on historical data before live trading.</p>
+<p><strong>Features</strong>:
+- Load CSV minute data
+- Run regime engine and agents
+- Simulate trades with slippage
+- Generate performance metrics
+- Save trade logs</p>
+<p><strong>Output</strong>:
+- Equity curve
+- Maximum drawdown
+- Win rate
+- Sharpe ratio
+- Returns by regime</p>
+<hr />
+<h3 id="11-control-panel-uifastapi_apppy">11. Control Panel (<code>ui/fastapi_app.py</code>)</h3>
+<p><strong>Purpose</strong>: Web-based monitoring and control interface.</p>
+<p><strong>Endpoints</strong>:
+- <strong>Control</strong>: <code>/start</code>, <code>/stop</code>, <code>/pause</code>, <code>/resume</code>, <code>/kill</code>
+- <strong>Monitoring</strong>: <code>/health</code>, <code>/regime</code>, <code>/stats</code>, <code>/agents</code>, <code>/trade-log</code>, <code>/risk-status</code>
+- <strong>Configuration</strong>: <code>/weights</code>, <code>/weights/save</code></p>
+<p><strong>Features</strong>:
+- Real-time regime display
+- Agent fitness visualization
+- Performance metrics
+- Trade log viewing
+- Risk status monitoring</p>
+<hr />
+<h2 id="what-were-achieving">🎯 What We're Achieving</h2>
+<h3 id="1-adaptive-trading-system">1. <strong>Adaptive Trading System</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Traditional trading bots use fixed strategies that work in some market conditions but fail in others</li>
+<li><strong>Our Solution</strong>: Regime-aware system that adapts strategy selection based on current market conditions</li>
+<li><strong>Achievement</strong>: Higher win rate and better risk-adjusted returns across different market regimes</li>
+</ul>
+<h3 id="2-intelligent-agent-selection">2. <strong>Intelligent Agent Selection</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Manual strategy switching is subjective and often too late</li>
+<li><strong>Our Solution</strong>: Multi-agent system with meta-policy controller that automatically selects the best agent for current conditions</li>
+<li><strong>Achievement</strong>: Optimal strategy activation without human intervention</li>
+</ul>
+<h3 id="3-self-improving-system">3. <strong>Self-Improving System</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Static trading systems don't adapt to changing market dynamics</li>
+<li><strong>Our Solution</strong>: Policy adaptation that evolves agent weights based on performance</li>
+<li><strong>Achievement</strong>: System improves over time as it learns which agents perform best in different conditions</li>
+</ul>
+<h3 id="4-production-grade-risk-management">4. <strong>Production-Grade Risk Management</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Many trading bots lack proper risk controls, leading to catastrophic losses</li>
+<li><strong>Our Solution</strong>: Multi-layered risk management with daily limits, drawdown limits, circuit breakers, and CVaR-based sizing</li>
+<li><strong>Achievement</strong>: Protection against large losses and system failures</li>
+</ul>
+<h3 id="5-deterministic-testable">5. <strong>Deterministic &amp; Testable</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Many trading systems are black boxes that can't be debugged or tested</li>
+<li><strong>Our Solution</strong>: Fully deterministic decision tree with comprehensive logging and testing</li>
+<li><strong>Achievement</strong>: Reproducible results, debuggable issues, and confidence in system behavior</li>
+</ul>
+<h3 id="6-cost-effective-data-usage">6. <strong>Cost-Effective Data Usage</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Professional trading data is expensive (often $100+/month)</li>
+<li><strong>Our Solution</strong>: Designed to work with affordable data sources (Polygon $19/mo, Finnhub free tier)</li>
+<li><strong>Achievement</strong>: Low operational costs while maintaining data quality</li>
+</ul>
+<h3 id="7-comprehensive-monitoring">7. <strong>Comprehensive Monitoring</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Trading bots often run blind, making it hard to understand what's happening</li>
+<li><strong>Our Solution</strong>: FastAPI control panel with real-time metrics, regime display, and trade logs</li>
+<li><strong>Achievement</strong>: Full visibility into system behavior and performance</li>
+</ul>
+<h3 id="8-backtesting-capability">8. <strong>Backtesting Capability</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Testing strategies on live capital is risky and expensive</li>
+<li><strong>Our Solution</strong>: Full backtesting engine that simulates trades on historical data</li>
+<li><strong>Achievement</strong>: Validate strategies before risking real capital</li>
+</ul>
+<h3 id="9-multi-broker-support">9. <strong>Multi-Broker Support</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: Vendor lock-in limits flexibility</li>
+<li><strong>Our Solution</strong>: Abstract broker interface supporting Alpaca, IBKR, and paper trading</li>
+<li><strong>Achievement</strong>: Flexibility to switch brokers or test without broker connection</li>
+</ul>
+<h3 id="10-state-persistence-recovery">10. <strong>State Persistence &amp; Recovery</strong></h3>
+<ul>
+<li><strong>Problem Solved</strong>: System crashes lose trading state and require manual intervention</li>
+<li><strong>Our Solution</strong>: Automatic state persistence and recovery on restart</li>
+<li><strong>Achievement</strong>: Resilient system that can recover from failures</li>
+</ul>
+<hr />
+<h2 id="key-metrics-goals">📊 Key Metrics &amp; Goals</h2>
+<h3 id="performance-targets">Performance Targets</h3>
+<ul>
+<li><strong>Sharpe Ratio</strong>: &gt; 1.5 (risk-adjusted returns)</li>
+<li><strong>Win Rate</strong>: &gt; 50% (more winning trades than losing)</li>
+<li><strong>Maximum Drawdown</strong>: &lt; 10% (capital preservation)</li>
+<li><strong>Daily Loss Limit</strong>: &lt; 2% (risk control)</li>
+</ul>
+<h3 id="system-goals">System Goals</h3>
+<ul>
+<li><strong>Uptime</strong>: &gt; 99% (reliable operation)</li>
+<li><strong>Latency</strong>: &lt; 1 second per bar (real-time processing)</li>
+<li><strong>Accuracy</strong>: Regime classification confidence &gt; 0.4 (minimum threshold)</li>
+<li><strong>Adaptation</strong>: Weight updates every 10 bars (responsive learning)</li>
+</ul>
+<hr />
+<h2 id="future-roadmap">🚀 Future Roadmap</h2>
+<h3 id="short-term-next-3-months">Short-Term (Next 3 Months)</h3>
+<ol>
+<li><strong>Enhanced Regime Detection</strong></li>
+<li>Add more regime types (e.g., news shock, gamma push)</li>
+<li>Improve confidence scoring</li>
+<li>
+<p>Add regime transition detection</p>
+</li>
+<li>
+<p><strong>Additional Agents</strong></p>
+</li>
+<li>News sentiment agent</li>
+<li>Cross-asset correlation agent</li>
+<li>
+<p>Options flow agent (if data available)</p>
+</li>
+<li>
+<p><strong>Improved Risk Management</strong></p>
+</li>
+<li>Dynamic position sizing based on regime</li>
+<li>Correlation-based risk limits</li>
+<li>
+<p>Portfolio-level risk metrics</p>
+</li>
+<li>
+<p><strong>Better Monitoring</strong></p>
+</li>
+<li>Real-time charts and visualizations</li>
+<li>Alert system for important events</li>
+<li>Performance attribution dashboard</li>
+</ol>
+<h3 id="medium-term-3-6-months">Medium-Term (3-6 Months)</h3>
+<ol>
+<li><strong>Machine Learning Integration</strong></li>
+<li>Regime classification using ML models</li>
+<li>Agent performance prediction</li>
+<li>
+<p>Optimal weight optimization</p>
+</li>
+<li>
+<p><strong>Multi-Symbol Trading</strong></p>
+</li>
+<li>Portfolio of correlated symbols</li>
+<li>Cross-symbol signals</li>
+<li>
+<p>Diversification strategies</p>
+</li>
+<li>
+<p><strong>Advanced Order Types</strong></p>
+</li>
+<li>Bracket orders</li>
+<li>Trailing stops</li>
+<li>
+<p>OCO (One-Cancels-Other) orders</p>
+</li>
+<li>
+<p><strong>Performance Optimization</strong></p>
+</li>
+<li>Parallel processing for multiple symbols</li>
+<li>Caching and optimization</li>
+<li>Reduced latency</li>
+</ol>
+<h3 id="long-term-6-months">Long-Term (6+ Months)</h3>
+<ol>
+<li><strong>Cloud Deployment</strong></li>
+<li>AWS/GCP deployment</li>
+<li>Auto-scaling</li>
+<li>
+<p>High availability</p>
+</li>
+<li>
+<p><strong>Multi-Strategy Framework</strong></p>
+</li>
+<li>Support for custom strategies</li>
+<li>Strategy marketplace</li>
+<li>
+<p>A/B testing framework</p>
+</li>
+<li>
+<p><strong>Advanced Analytics</strong></p>
+</li>
+<li>Monte Carlo simulations</li>
+<li>Stress testing</li>
+<li>
+<p>Scenario analysis</p>
+</li>
+<li>
+<p><strong>Community Features</strong></p>
+</li>
+<li>Strategy sharing</li>
+<li>Performance leaderboard</li>
+<li>Collaborative development</li>
+</ol>
+<hr />
+<h2 id="conclusion">📝 Conclusion</h2>
+<p>FutBot represents a sophisticated approach to algorithmic trading that combines:
+- <strong>Regime-aware classification</strong> for adaptive strategy selection
+- <strong>Multi-agent architecture</strong> for specialized trading strategies
+- <strong>Self-tuning mechanisms</strong> for continuous improvement
+- <strong>Production-grade risk management</strong> for capital preservation
+- <strong>Comprehensive monitoring</strong> for operational excellence</p>
+<p>The system is designed to be <strong>deterministic, testable, and production-ready</strong>, making it suitable for both research and live trading applications.</p>
+<p>By focusing on <strong>adaptability, risk management, and continuous improvement</strong>, FutBot aims to achieve consistent, risk-adjusted returns across varying market conditions.</p>
+<hr />
+<p><strong>Document Version</strong>: 1.0<br />
+<strong>Last Updated</strong>: 2024-11-24<br />
+<strong>Maintained By</strong>: FutBot Development Team</p>
+        
+        <div class="footer">
+            <p><strong>Document Version:</strong> 1.0 | <strong>Last Updated:</strong> 2024-11-24</p>
+            <p>FutBot Development Team</p>
+        </div>
+    </body>
+    </html>
+    

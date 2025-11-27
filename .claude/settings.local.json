@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(PYTHONPATH=/Users/chavala/FutBot:$PYTHONPATH pytest:*)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(PYTHONPATH=/Users/chavala/FutBot .venv/bin/pytest:*)",
+      "Bash(find:*)",
+      "Bash(PYTHONPATH=/Users/chavala/FutBot .venv/bin/python:*)",
+      "Bash(chmod:*)",
+      "Bash(ln:*)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(echo:*)",
+      "Bash(/Users/chavala/FutBot/requirements.txt)",
+      "Bash(python3:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
