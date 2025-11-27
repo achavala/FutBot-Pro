@@ -160,8 +160,12 @@ class LiveTradingLoop:
         """Stop the live trading loop."""
         if self.is_running:
             self.stop_reason = "user_stop"
-            if hasattr(self.config, 'offline_mode') and self.config.offline_mode:
-                self._log_simulation_summary()
+            # Only log summary if we have processed some bars
+            if hasattr(self.config, 'offline_mode') and self.config.offline_mode and self.bar_count > 0:
+                try:
+                    self._log_simulation_summary()
+                except Exception as e:
+                    logger.warning(f"Could not log simulation summary: {e}")
         self.is_running = False
         if self.thread:
             self.thread.join(timeout=5.0)
