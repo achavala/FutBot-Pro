@@ -683,7 +683,9 @@
                 const dayOfWeek = currentDate.getDay();
                 // 0 = Sunday, 6 = Saturday, skip weekends
                 if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    // Store ISO date (YYYY-MM-DD) as value for backend
                     const dateStr = currentDate.toISOString().split('T')[0];
+                    // Store formatted date as label for user display
                     const formattedDate = currentDate.toLocaleDateString('en-US', { 
                         weekday: 'short', 
                         month: 'short', 
@@ -696,10 +698,12 @@
             }
             
             // Add dates to dropdown (most recent first)
+            // NOTE: option.value = ISO date (for backend), option.textContent = formatted label (for display)
+            // TODO: Future enhancement - query /cache/coverage endpoint to only show dates with actual cached data
             dates.reverse().forEach(date => {
                 const option = document.createElement('option');
-                option.value = date.value;
-                option.textContent = date.label;
+                option.value = date.value;  // ISO format: "2024-11-25"
+                option.textContent = date.label;  // Display: "Mon, Nov 25, 2024"
                 dateSelect.appendChild(option);
             });
         }
@@ -724,7 +728,10 @@
             
             // Get start date from dropdown (optional)
             const startDateSelect = document.getElementById('simStartDate');
-            const startDate = startDateSelect && startDateSelect.value ? startDateSelect.value : null;
+            // Explicitly check for empty string to avoid sending "" to backend
+            const startDate = startDateSelect && startDateSelect.value && startDateSelect.value.trim() !== '' 
+                ? startDateSelect.value.trim() 
+                : null;
             
             // Get replay speed
             const replaySpeedInput = document.getElementById('replaySpeed');
@@ -738,10 +745,12 @@
                 replay_speed: replaySpeed
             };
             
-            // Add start_date if provided
-            if (startDate) {
+            // Add start_date only if a valid date is selected (not "All Available Data")
+            // Backend expects ISO format string (YYYY-MM-DD) or null/undefined
+            if (startDate && startDate !== '') {
                 payload.start_date = startDate;
             }
+            // If startDate is null or empty, we don't include it in payload (backend uses all available data)
             
             try {
                 const res = await fetch(`${API_BASE}/live/start`, {
