@@ -101,14 +101,20 @@ class LiveTradingLoop:
 
     def start(self) -> None:
         """Start the live trading loop in a background thread."""
+        logger.info(f"🔵 [LiveLoop] Starting live trading loop...")
         if self.is_running:
             raise ValueError("Live trading loop is already running")
 
+        logger.info(f"🔵 [LiveLoop] Data feed connected: {self.data_feed.connected}")
         if not self.data_feed.connected:
+            logger.info(f"🔵 [LiveLoop] Connecting data feed...")
             self.data_feed.connect()
+            logger.info(f"✅ [LiveLoop] Data feed connected successfully")
             # Preload bars - request 100 bars to ensure we get at least 50+ bars
             # This speeds up startup by loading historical data immediately
-            self.data_feed.subscribe(self.config.symbols, preload_bars=100)  # Preload 100 bars for faster startup
+            logger.info(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
+            subscribe_result = self.data_feed.subscribe(self.config.symbols, preload_bars=100)  # Preload 100 bars for faster startup
+            logger.info(f"✅ [LiveLoop] Subscribe result: {subscribe_result}")
             
             # Load preloaded bars into history (wait for preload to complete)
             # Increased wait time but handle partial loads gracefully
@@ -140,8 +146,10 @@ class LiveTradingLoop:
 
         self.is_running = True
         self.is_paused = False
+        logger.info(f"🔵 [LiveLoop] Creating background thread for _run_loop...")
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
+        logger.info(f"✅ [LiveLoop] Background thread started - loop is now running")
 
     def stop(self) -> None:
         """Stop the live trading loop."""

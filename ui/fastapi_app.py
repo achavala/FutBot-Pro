@@ -638,6 +638,9 @@ async def start_live_trading(request: LiveStartRequest):
     )
     import os
 
+    # 🔍 DIAGNOSTIC LOGGING: Start request details
+    logger.info(f"🔵 START REQUEST: broker_type={request.broker_type}, offline_mode={request.offline_mode}, symbols={request.symbols}")
+
     # Create broker client based on type
     if request.broker_type == "paper" or request.broker_type == "cached":
         # Use paper broker for both paper trading and cached/offline simulation
@@ -681,21 +684,27 @@ async def start_live_trading(request: LiveStartRequest):
         raise HTTPException(status_code=400, detail=f"Unknown broker type: {request.broker_type}")
 
     # Create data feed
+    logger.info(f"🔵 Creating data feed: broker_type={request.broker_type}, offline_mode={request.offline_mode}")
     if request.broker_type == "cached" or request.offline_mode:
         # Use cached data feed for offline trading
         from core.live.data_feed_cached import CachedDataFeed
         from core.settings_loader import load_settings
         from pathlib import Path
         
-        settings = load_settings()
-        cache_path = Path(settings.data.cache.path)
-        
-        data_feed = CachedDataFeed(
-            cache_path=cache_path,
-            bar_size="1Min",
-            symbols=request.symbols,
-        )
-        logger.info("Using cached data feed for offline trading")
+        try:
+            settings = load_settings()
+            cache_path = Path(settings.data.cache.path)
+            logger.info(f"🔵 Cache path: {cache_path}")
+            
+            data_feed = CachedDataFeed(
+                cache_path=cache_path,
+                bar_size="1Min",
+                symbols=request.symbols,
+            )
+            logger.info(f"✅ CachedDataFeed created successfully for symbols: {request.symbols}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create CachedDataFeed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create cached data feed: {str(e)}")
     elif request.broker_type == "alpaca":
         # Get Alpaca credentials for data feed
         api_key = request.api_key or os.getenv("ALPACA_API_KEY")
@@ -773,6 +782,7 @@ async def start_live_trading(request: LiveStartRequest):
         logger.warning(f"Could not load asset profiles: {e}, using defaults")
     
     # Start live trading
+    logger.info(f"🔵 Starting live trading with broker_client={type(broker_client).__name__}, data_feed={type(data_feed).__name__}")
     try:
         from core.live import LiveTradingConfig
         live_config = LiveTradingConfig(
@@ -781,6 +791,7 @@ async def start_live_trading(request: LiveStartRequest):
             enable_profit_taking=True,
             asset_profiles=asset_profiles,
         )
+        logger.info(f"🔵 LiveTradingConfig created, calling bot_manager.start_live_trading()...")
         bot_manager.start_live_trading(
             symbols=request.symbols,
             broker_client=broker_client,
@@ -788,6 +799,7 @@ async def start_live_trading(request: LiveStartRequest):
             config=live_config,
             asset_profiles=asset_profiles,
         )
+        logger.info(f"✅ bot_manager.start_live_trading() completed successfully")
         return {"status": "started", "message": "Live trading started successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

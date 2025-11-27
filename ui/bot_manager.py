@@ -326,6 +326,7 @@ class BotManager:
         agents_to_use = updated_agents
 
         # Create live trading loop
+        logger.info(f"🔵 Creating LiveTradingLoop with {len(agents_to_use)} agents, symbols={symbols}")
         self.live_loop = LiveTradingLoop(
             data_feed=data_feed,
             broker_executor=self.live_executor,
@@ -340,6 +341,7 @@ class BotManager:
             config=live_config,
             on_bar_callback=self.update_state,
         )
+        logger.info(f"✅ LiveTradingLoop created successfully")
         
         # Store agents reference for potential replacement (e.g., challenge mode)
         self._live_agents = agents_to_use
@@ -348,15 +350,24 @@ class BotManager:
         saved_state = self.state_store.load_state()
         if saved_state:
             self.live_loop.bar_count = saved_state.get("bar_count", 0)
+            logger.info(f"🔵 Loaded previous state: bar_count={self.live_loop.bar_count}")
 
         # Initialize event logger if enabled
         if enable_logging:
             from pathlib import Path
             self.event_logger = EventLogger(log_file=Path("logs/trading_events.jsonl"))
+            logger.info("🔵 Event logger initialized")
 
         # Start the loop
-        self.live_loop.start()
+        logger.info(f"🔵 Calling live_loop.start()...")
+        try:
+            self.live_loop.start()
+            logger.info(f"✅ live_loop.start() completed - loop thread should be running")
+        except Exception as e:
+            logger.error(f"❌ Failed to start live loop: {e}", exc_info=True)
+            raise
         self.state.is_running = True
+        logger.info(f"✅ Bot state set to running=True")
 
     def stop_live_trading(self) -> None:
         """Stop live trading."""
