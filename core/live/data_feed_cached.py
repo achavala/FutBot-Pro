@@ -76,41 +76,102 @@ class CachedDataFeed(BaseDataFeed):
             cached_df = self.cache.load(symbol, self.bar_size)
             
             if cached_df.empty:
-                logger.warning(f"No cached data found for {symbol}")
-                self.cached_data[symbol] = []
-                continue
-            
-            # Convert DataFrame to list of Bar objects
-            import pandas as pd
-            bars_list = []
-            for idx, row in cached_df.iterrows():
-                bar_time = idx if isinstance(idx, datetime) else pd.to_datetime(idx)
-                if isinstance(bar_time, pd.Timestamp):
-                    bar_time = bar_time.to_pydatetime()
+                logger.warning(f"No cached data found for {symbol} - generating synthetic bars for simulation")
+                # Generate synthetic bars for simulation when cache is empty
+                bars_list = self._generate_synthetic_bars(symbol, preload_bars)
+                self.cached_data[symbol] = bars_list
+                logger.info(f"Generated {len(bars_list)} synthetic bars for {symbol}")
+            else:
+                # Convert DataFrame to list of Bar objects
+                import pandas as pd
+                bars_list = []
+                for idx, row in cached_df.iterrows():
+                    bar_time = idx if isinstance(idx, datetime) else pd.to_datetime(idx)
+                    if isinstance(bar_time, pd.Timestamp):
+                        bar_time = bar_time.to_pydatetime()
+                    
+                    bar = Bar(
+                        symbol=symbol,
+                        timestamp=bar_time,
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        volume=float(row.get("volume", 0)),
+                    )
+                    bars_list.append(bar)
                 
-                bar = Bar(
-                    symbol=symbol,
-                    timestamp=bar_time,
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=float(row.get("volume", 0)),
-                )
-                bars_list.append(bar)
+                self.cached_data[symbol] = bars_list
+                logger.info(f"Loaded {len(bars_list)} cached bars for {symbol}")
             
-            self.cached_data[symbol] = bars_list
-            logger.info(f"Loaded {len(bars_list)} cached bars for {symbol}")
-            
-            # Preload bars into buffer
-            bars_to_load = bars_list[-min(preload_bars, len(bars_list)):]
-            for bar in bars_to_load:
-                self.bar_buffers[symbol].append(bar)
-            
-            logger.info(f"Preloaded {len(bars_to_load)} bars for {symbol} into buffer")
+            # Preload bars into buffer (works for both cached and synthetic)
+            if symbol in self.cached_data and len(self.cached_data[symbol]) > 0:
+                bars_list = self.cached_data[symbol]
+                bars_to_load = bars_list[-min(preload_bars, len(bars_list)):]
+                for bar in bars_to_load:
+                    self.bar_buffers[symbol].append(bar)
+                logger.info(f"Preloaded {len(bars_to_load)} bars for {symbol} into buffer")
 
         logger.info(f"Subscribed to symbols: {symbols}")
         return True
+
+    def _generate_synthetic_bars(self, symbol: str, count: int = 500) -> List[Bar]:
+        """
+        Generate synthetic bars for simulation when no cached data exists.
+        
+        Args:
+            symbol: Trading symbol
+            count: Number of bars to generate
+            
+        Returns:
+            List of Bar objects
+        """
+        import random
+        from datetime import datetime, timedelta
+        
+        # Default prices for common symbols
+        default_prices = {
+            "QQQ": 400.0,
+            "SPY": 450.0,
+            "SPX": 4500.0,
+            "BTC/USD": 50000.0,
+            "ETH/USD": 3000.0,
+        }
+        
+        # Start with default price or random if unknown
+        base_price = default_prices.get(symbol, random.uniform(100.0, 500.0))
+        current_price = base_price
+        
+        bars_list = []
+        now = datetime.now(timezone.utc)
+        
+        # Generate bars going backwards in time
+        for i in range(count):
+            # Random walk: ±0.5% change per bar
+            change_pct = random.uniform(-0.005, 0.005)
+            new_price = current_price * (1 + change_pct)
+            
+            # Generate OHLC
+            high = max(current_price, new_price) * (1 + abs(random.uniform(0, 0.002)))
+            low = min(current_price, new_price) * (1 - abs(random.uniform(0, 0.002)))
+            volume = random.uniform(1000000, 10000000)
+            
+            # Timestamp going backwards
+            bar_time = now - timedelta(minutes=count - i)
+            
+            bar = Bar(
+                symbol=symbol,
+                timestamp=bar_time,
+                open=current_price,
+                high=high,
+                low=low,
+                close=new_price,
+                volume=volume,
+            )
+            bars_list.append(bar)
+            current_price = new_price
+        
+        return bars_list
 
     def get_next_bar(self, symbol: str, timeout: float = 5.0) -> Optional[Bar]:
         """
