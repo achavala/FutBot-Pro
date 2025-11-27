@@ -415,13 +415,16 @@
                     <option value="SPY" selected>SPY</option>
                     <option value="QQQ">QQQ</option>
                 </select>
-                <select id="simStartDate" 
-                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
-                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               max-width: 180px; display: inline-block;"
-                        title="Select start date for simulation (last 3 months)">
-                    <option value="">All Available Data</option>
-                </select>
+                <input type="datetime-local" id="simStartTime" 
+                       style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                              background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                              max-width: 180px; display: inline-block; font-size: 13px;"
+                       title="Start date and time for simulation (YYYY-MM-DDTHH:MM)">
+                <input type="datetime-local" id="simEndTime" 
+                       style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                              background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                              max-width: 180px; display: inline-block; font-size: 13px;"
+                       title="End date and time for simulation (YYYY-MM-DDTHH:MM)">
                 <select id="replaySpeed" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
@@ -660,88 +663,48 @@
             setTimeout(() => t.className = 'toast', 3000);
         }
 
-        // --- Populate Date Dropdown (Last 3 Months) ---
-        function populateDateDropdown() {
-            const dateSelect = document.getElementById('simStartDate');
-            if (!dateSelect) {
-                console.warn('simStartDate element not found');
+        // --- Initialize DateTime Inputs ---
+        function initDateTimeInputs() {
+            const startTimeInput = document.getElementById('simStartTime');
+            const endTimeInput = document.getElementById('simEndTime');
+            
+            if (!startTimeInput || !endTimeInput) {
+                console.warn('DateTime inputs not found');
                 return;
             }
-            console.log('Populating date dropdown...');
             
-            // Clear existing options except "All Available Data"
-            while (dateSelect.options.length > 1) {
-                dateSelect.remove(1);
-            }
-            
-            // Generate dates for last 3 months (weekdays only - trading days)
-            const today = new Date();
+            // Set default values: Start = 3 months ago, End = now
+            const now = new Date();
             const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(today.getMonth() - 3);
+            threeMonthsAgo.setMonth(now.getMonth() - 3);
             
-            const dates = [];
-            const currentDate = new Date(threeMonthsAgo);
+            // Format for datetime-local input (YYYY-MM-DDTHH:MM)
+            const formatDateTimeLocal = (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            };
             
-            // Generate dates (weekdays only, Monday-Friday)
-            while (currentDate <= today) {
-                const dayOfWeek = currentDate.getDay();
-                // 0 = Sunday, 6 = Saturday, skip weekends
-                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-                    // Store ISO date (YYYY-MM-DD) as value for backend
-                    const dateStr = currentDate.toISOString().split('T')[0];
-                    // Store formatted date as label for user display
-                    const formattedDate = currentDate.toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric'
-                    });
-                    dates.push({ value: dateStr, label: formattedDate });
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
+            // Set default start time (3 months ago, 9:30 AM market open)
+            const defaultStart = new Date(threeMonthsAgo);
+            defaultStart.setHours(9, 30, 0, 0);
+            startTimeInput.value = formatDateTimeLocal(defaultStart);
             
-            // Add dates to dropdown (most recent first)
-            // NOTE: option.value = ISO date (for backend), option.textContent = formatted label (for display)
-            // TODO: Future enhancement - query /cache/coverage endpoint to only show dates with actual cached data
-            dates.reverse().forEach(date => {
-                const option = document.createElement('option');
-                option.value = date.value;  // ISO format: "2024-11-25"
-                option.textContent = date.label;  // Display: "Mon, Nov 25, 2024"
-                dateSelect.appendChild(option);
-            });
+            // Set default end time (now)
+            endTimeInput.value = formatDateTimeLocal(now);
             
-            console.log(`Date dropdown populated with ${dates.length} dates`);
+            console.log('DateTime inputs initialized');
         }
         
-        // Initialize date dropdown on page load (multiple methods for reliability)
-        function initDateDropdown() {
-            try {
-                populateDateDropdown();
-                console.log('Date dropdown populated successfully');
-            } catch (e) {
-                console.error('Error populating date dropdown:', e);
-                // Retry after a short delay
-                setTimeout(populateDateDropdown, 100);
-            }
-        }
-        
-        // Try multiple initialization methods
+        // Initialize on page load
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initDateDropdown);
+            document.addEventListener('DOMContentLoaded', initDateTimeInputs);
         } else {
-            // DOM already loaded, run immediately
-            initDateDropdown();
+            initDateTimeInputs();
         }
-        
-        // Also try on window load as fallback
-        window.addEventListener('load', function() {
-            const dateSelect = document.getElementById('simStartDate');
-            if (dateSelect && dateSelect.options.length <= 1) {
-                console.log('Date dropdown empty on window load, repopulating...');
-                populateDateDropdown();
-            }
-        });
 
         // --- API Controls ---
         async function startSimulation() {
@@ -754,12 +717,35 @@
             const symbolSelect = document.getElementById('simSymbol');
             const selectedSymbol = symbolSelect ? symbolSelect.value : 'SPY';
             
-            // Get start date from dropdown (optional)
-            const startDateSelect = document.getElementById('simStartDate');
-            // Explicitly check for empty string to avoid sending "" to backend
-            const startDate = startDateSelect && startDateSelect.value && startDateSelect.value.trim() !== '' 
-                ? startDateSelect.value.trim() 
-                : null;
+            // Get start time and end time (datetime-local format: YYYY-MM-DDTHH:MM)
+            const startTimeInput = document.getElementById('simStartTime');
+            const endTimeInput = document.getElementById('simEndTime');
+            
+            // Convert datetime-local to ISO format for backend (YYYY-MM-DDTHH:MM:SS)
+            let startTime = null;
+            let endTime = null;
+            
+            if (startTimeInput && startTimeInput.value) {
+                // datetime-local returns YYYY-MM-DDTHH:MM, convert to ISO with seconds
+                startTime = startTimeInput.value + ':00';
+            }
+            
+            if (endTimeInput && endTimeInput.value) {
+                // datetime-local returns YYYY-MM-DDTHH:MM, convert to ISO with seconds
+                endTime = endTimeInput.value + ':00';
+            }
+            
+            // Validate: end_time must be after start_time
+            if (startTime && endTime) {
+                const start = new Date(startTime);
+                const end = new Date(endTime);
+                if (end <= start) {
+                    showToast('End time must be after start time', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    return;
+                }
+            }
             
             // Get replay speed
             const replaySpeedInput = document.getElementById('replaySpeed');
@@ -773,12 +759,13 @@
                 replay_speed: replaySpeed
             };
             
-            // Add start_date only if a valid date is selected (not "All Available Data")
-            // Backend expects ISO format string (YYYY-MM-DD) or null/undefined
-            if (startDate && startDate !== '') {
-                payload.start_date = startDate;
+            // Add start_time and end_time if provided
+            if (startTime) {
+                payload.start_time = startTime;
             }
-            // If startDate is null or empty, we don't include it in payload (backend uses all available data)
+            if (endTime) {
+                payload.end_time = endTime;
+            }
             
             try {
                 const res = await fetch(`${API_BASE}/live/start`, {

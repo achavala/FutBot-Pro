@@ -610,6 +610,8 @@ class LiveStartRequest(BaseModel):
     offline_mode: bool = False  # Use cached data instead of live data
     fixed_investment_amount: float = 1000.0  # $1000 per trade
     start_date: Optional[str] = None  # Start from specific date (YYYY-MM-DD) for offline trading, e.g., "2024-01-15"
+    start_time: Optional[str] = None  # Start datetime (YYYY-MM-DDTHH:MM:SS) for time-windowed simulation
+    end_time: Optional[str] = None  # End datetime (YYYY-MM-DDTHH:MM:SS) for time-windowed simulation
     replay_speed: Optional[float] = 600.0  # Replay speed multiplier: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
     # Alpaca credentials
     api_key: Optional[str] = None
@@ -698,17 +700,45 @@ async def start_live_trading(request: LiveStartRequest):
             cache_path = Path(settings.data.cache.path)
             logger.info(f"🔵 Cache path: {cache_path}")
             
-            # Parse start_date if provided
-            start_date_obj = None
-            if request.start_date:
+            # Parse start_time and end_time if provided (preferred over start_date)
+            start_datetime_obj = None
+            end_datetime_obj = None
+            
+            if request.start_time or request.end_time:
+                # Use start_time/end_time if provided (more precise)
                 from datetime import datetime
                 try:
-                    start_date_obj = datetime.strptime(request.start_date, "%Y-%m-%d")
+                    if request.start_time:
+                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS
+                        start_datetime_obj = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+                        if start_datetime_obj.tzinfo is None:
+                            start_datetime_obj = start_datetime_obj.replace(tzinfo=timezone.utc)
+                        logger.info(f"🔵 Starting from datetime: {start_datetime_obj}")
+                    
+                    if request.end_time:
+                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS
+                        end_datetime_obj = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+                        if end_datetime_obj.tzinfo is None:
+                            end_datetime_obj = end_datetime_obj.replace(tzinfo=timezone.utc)
+                        logger.info(f"🔵 Ending at datetime: {end_datetime_obj}")
+                    
+                    # Validate: end_time must be after start_time
+                    if start_datetime_obj and end_datetime_obj and end_datetime_obj <= start_datetime_obj:
+                        raise HTTPException(status_code=400, detail="end_time must be after start_time")
+                        
+                except ValueError as e:
+                    logger.warning(f"Invalid datetime format: {e}")
+                    raise HTTPException(status_code=400, detail=f"Invalid datetime format: {e}")
+            elif request.start_date:
+                # Fallback to start_date for backward compatibility
+                from datetime import datetime
+                try:
+                    start_datetime_obj = datetime.strptime(request.start_date, "%Y-%m-%d")
                     # Set to market open time (9:30 AM ET = 13:30 UTC)
-                    start_date_obj = start_date_obj.replace(hour=13, minute=30, second=0, microsecond=0)
-                    if start_date_obj.tzinfo is None:
-                        start_date_obj = start_date_obj.replace(tzinfo=timezone.utc)
-                    logger.info(f"🔵 Starting from historical date: {start_date_obj}")
+                    start_datetime_obj = start_datetime_obj.replace(hour=13, minute=30, second=0, microsecond=0)
+                    if start_datetime_obj.tzinfo is None:
+                        start_datetime_obj = start_datetime_obj.replace(tzinfo=timezone.utc)
+                    logger.info(f"🔵 Starting from historical date: {start_datetime_obj}")
                 except ValueError as e:
                     logger.warning(f"Invalid start_date format '{request.start_date}': {e}. Using all available data.")
             
@@ -716,7 +746,8 @@ async def start_live_trading(request: LiveStartRequest):
                 cache_path=cache_path,
                 bar_size="1Min",
                 symbols=request.symbols,
-                start_date=start_date_obj,
+                start_date=start_datetime_obj,
+                end_date=end_datetime_obj,
             )
             logger.info(f"✅ CachedDataFeed created successfully for symbols: {request.symbols}")
         except Exception as e:

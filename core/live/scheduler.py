@@ -251,6 +251,15 @@ class LiveTradingLoop:
                                 for bar in batch_bars:
                                     if not self.is_running:
                                         break
+                                    
+                                    # Check if bar exceeds end_time (if specified)
+                                    if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
+                                        if bar.timestamp > self.data_feed.end_date:
+                                            logger.info(f"✅ [LiveLoop] Reached end_time {self.data_feed.end_date} for {symbol}")
+                                            self.stop_reason = "end_time_reached"
+                                            self.is_running = False
+                                            break
+                                    
                                     self._process_bar(symbol, bar)
                                     bars_processed += 1
                                     self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
@@ -277,6 +286,14 @@ class LiveTradingLoop:
                             while bars_this_iteration < max_bars_per_iteration and self.is_running:
                                 bar = self.data_feed.get_next_bar(symbol, timeout=0.1)
                                 if bar:
+                                    # Check if bar exceeds end_time (if specified)
+                                    if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
+                                        if bar.timestamp > self.data_feed.end_date:
+                                            logger.info(f"✅ [LiveLoop] Reached end_time {self.data_feed.end_date} for {symbol}")
+                                            self.stop_reason = "end_time_reached"
+                                            self.is_running = False
+                                            break
+                                    
                                     self._process_bar(symbol, bar)
                                     bars_processed += 1
                                     bars_this_iteration += 1

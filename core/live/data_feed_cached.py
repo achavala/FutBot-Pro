@@ -26,6 +26,7 @@ class CachedDataFeed(BaseDataFeed):
         bar_size: str = "1Min",
         symbols: Optional[List[str]] = None,
         start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ):
         """
         Initialize cached data feed.
@@ -34,12 +35,14 @@ class CachedDataFeed(BaseDataFeed):
             cache_path: Path to cache database
             bar_size: Bar size (e.g., "1Min", "5Min")
             symbols: List of symbols (optional, can be set in subscribe)
-            start_date: Start from specific date (for historical replay)
+            start_date: Start from specific datetime (for historical replay)
+            end_date: End at specific datetime (for time-windowed simulation)
         """
         self.cache_path = cache_path
         self.bar_size = bar_size
         self.cache = BarCache(cache_path)
         self.start_date = start_date
+        self.end_date = end_date
         
         self.subscribed_symbols: List[str] = []
         self.bar_buffers: dict[str, Deque[Bar]] = {}
@@ -48,7 +51,9 @@ class CachedDataFeed(BaseDataFeed):
         
         self.connected = False
         
-        if start_date:
+        if start_date and end_date:
+            logger.info(f"Cached data feed initialized (bar_size={bar_size}, start_date={start_date}, end_date={end_date})")
+        elif start_date:
             logger.info(f"Cached data feed initialized (bar_size={bar_size}, start_date={start_date})")
         else:
             logger.info(f"Cached data feed initialized (bar_size={bar_size})")
@@ -80,11 +85,17 @@ class CachedDataFeed(BaseDataFeed):
             # Load cached data
             logger.info(f"Loading cached data for {symbol}...")
             
-            # If start_date is specified, load data from that date onwards
-            if self.start_date:
-                start_ts = int(self.start_date.timestamp() * 1000)
-                cached_df = self.cache.load(symbol, self.bar_size, start_ts=start_ts)
-                logger.info(f"Loading data from {self.start_date} onwards for {symbol}")
+            # If start_date or end_date is specified, load data in that range
+            if self.start_date or self.end_date:
+                start_ts = int(self.start_date.timestamp() * 1000) if self.start_date else None
+                end_ts = int(self.end_date.timestamp() * 1000) if self.end_date else None
+                cached_df = self.cache.load(symbol, self.bar_size, start_ts=start_ts, end_ts=end_ts)
+                if self.start_date and self.end_date:
+                    logger.info(f"Loading data from {self.start_date} to {self.end_date} for {symbol}")
+                elif self.start_date:
+                    logger.info(f"Loading data from {self.start_date} onwards for {symbol}")
+                elif self.end_date:
+                    logger.info(f"Loading data up to {self.end_date} for {symbol}")
             else:
                 cached_df = self.cache.load(symbol, self.bar_size)
             
@@ -96,12 +107,25 @@ class CachedDataFeed(BaseDataFeed):
                 logger.info(f"Generated {len(bars_list)} synthetic bars for {symbol}")
             else:
                 # Convert DataFrame to list of Bar objects
+                # Filter by start_date and end_date if specified
                 import pandas as pd
                 bars_list = []
                 for idx, row in cached_df.iterrows():
                     bar_time = idx if isinstance(idx, datetime) else pd.to_datetime(idx)
                     if isinstance(bar_time, pd.Timestamp):
                         bar_time = bar_time.to_pydatetime()
+                    
+                    # Ensure timezone-aware for comparison
+                    if bar_time.tzinfo is None:
+                        bar_time = bar_time.replace(tzinfo=timezone.utc)
+                    
+                    # Filter by start_date
+                    if self.start_date and bar_time < self.start_date:
+                        continue
+                    
+                    # Filter by end_date
+                    if self.end_date and bar_time > self.end_date:
+                        continue
                     
                     bar = Bar(
                         symbol=symbol,
@@ -115,7 +139,7 @@ class CachedDataFeed(BaseDataFeed):
                     bars_list.append(bar)
                 
                 self.cached_data[symbol] = bars_list
-                logger.info(f"Loaded {len(bars_list)} cached bars for {symbol}")
+                logger.info(f"Loaded {len(bars_list)} cached bars for {symbol} (filtered by time window)")
             
             # Preload bars into buffer (works for both cached and synthetic)
             if symbol in self.cached_data and len(self.cached_data[symbol]) > 0:
