@@ -517,8 +517,81 @@
                                     <span id="wbPerfPnL" style="font-size: 24px; font-weight: 600;">$0.00</span>
                                 </div>
                             </div>
-                            <div style="flex: 1; position: relative;">
+                            <!-- Performance Tabs -->
+                            <div style="display: flex; gap: 8px; padding: 0 20px; border-bottom: 1px solid var(--border-color);">
+                                <div class="perf-tab active" onclick="showPerfTab('chart', this)" style="padding: 8px 12px; cursor: pointer; border-bottom: 2px solid var(--nav-accent); color: var(--nav-accent); font-size: 13px; font-weight: 500;">
+                                    Chart
+                                </div>
+                                <div class="perf-tab" onclick="showPerfTab('status', this)" style="padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 13px; font-weight: 500;">
+                                    Status
+                                </div>
+                            </div>
+                            <!-- Chart View -->
+                            <div id="perf-chart-view" class="perf-tab-content" style="flex: 1; position: relative; display: block;">
                                 <canvas id="wbMainChart"></canvas>
+                            </div>
+                            <!-- Status View -->
+                            <div id="perf-status-view" class="perf-tab-content" style="flex: 1; padding: 20px; display: none; overflow-y: auto; max-height: 400px;">
+                                <div style="margin-bottom: 20px;">
+                                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;">
+                                        <i class="fas fa-signal" style="margin-right: 8px;"></i>Trade Setups
+                                    </div>
+                                    <div id="tradeSetups" style="display: flex; flex-direction: column; gap: 8px;">
+                                        <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #9ca3af;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <div>
+                                                    <div style="font-weight: 600; color: var(--text-primary);">Waiting for data...</div>
+                                                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">No trade signals available</div>
+                                                </div>
+                                                <div style="padding: 4px 8px; background: #374151; border-radius: 4px; font-size: 11px; color: #9ca3af;">
+                                                    PENDING
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 20px;">
+                                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;">
+                                        <i class="fas fa-robot" style="margin-right: 8px;"></i>Agent Activity
+                                    </div>
+                                    <div id="agentActivity" style="display: flex; flex-direction: column; gap: 8px;">
+                                        <div style="padding: 12px; background: var(--card-bg); border-radius: 6px;">
+                                            <div style="font-size: 12px; color: var(--text-secondary);">Loading agent status...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-bottom: 20px;">
+                                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;">
+                                        <i class="fas fa-cog" style="margin-right: 8px;"></i>Background Activity
+                                    </div>
+                                    <div id="backgroundActivity" style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;">
+                                        <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-secondary);">System Status:</span>
+                                            <span id="systemStatus" style="color: var(--text-primary); font-weight: 500;">Stopped</span>
+                                        </div>
+                                        <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-secondary);">Bars Processed:</span>
+                                            <span id="barsProcessed" style="color: var(--text-primary); font-weight: 500;">0</span>
+                                        </div>
+                                        <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-secondary);">Current Regime:</span>
+                                            <span id="currentRegime" style="color: var(--text-primary); font-weight: 500;">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;">
+                                        <i class="fas fa-history" style="margin-right: 8px;"></i>Recent Activity
+                                    </div>
+                                    <div id="recentActivity" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; max-height: 150px; overflow-y: auto;">
+                                        <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; color: var(--text-secondary);">
+                                            No recent activity
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="wb-card">
@@ -659,6 +732,256 @@
             // Show selected
             document.getElementById(`ana-${tabId}`).style.display = 'block';
             el.classList.add('active');
+        }
+
+        function showPerfTab(tabId, el) {
+            // Hide all performance tab contents
+            document.querySelectorAll('.perf-tab-content').forEach(div => div.style.display = 'none');
+            document.querySelectorAll('.perf-tab').forEach(t => {
+                t.style.borderBottomColor = 'transparent';
+                t.style.color = 'var(--text-secondary)';
+            });
+            
+            // Show selected
+            if (tabId === 'chart') {
+                document.getElementById('perf-chart-view').style.display = 'block';
+            } else if (tabId === 'status') {
+                document.getElementById('perf-status-view').style.display = 'block';
+                updateStatusView(); // Refresh status when switching to status tab
+            }
+            
+            // Update tab styling
+            el.style.borderBottomColor = 'var(--nav-accent)';
+            el.style.color = 'var(--nav-accent)';
+        }
+
+        async function updateStatusView() {
+            try {
+                // Fetch all status data
+                const [health, regime, agents, liveStatus] = await Promise.all([
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/agents`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => null)
+                ]);
+
+                // Update Background Activity
+                if (health) {
+                    document.getElementById('systemStatus').textContent = health.is_running 
+                        ? (health.is_paused ? 'Paused' : 'Running') 
+                        : 'Stopped';
+                    document.getElementById('systemStatus').style.color = health.is_running 
+                        ? (health.is_paused ? '#f59e0b' : '#10b981') 
+                        : '#ef4444';
+                }
+                
+                if (liveStatus) {
+                    document.getElementById('barsProcessed').textContent = liveStatus.bar_count || 0;
+                    if (liveStatus.mode) {
+                        document.getElementById('systemStatus').textContent = 
+                            `${liveStatus.mode === 'offline' ? 'Simulating' : 'Live'} - ${liveStatus.is_running ? 'Running' : 'Stopped'}`;
+                    }
+                }
+
+                // Update Current Regime
+                if (regime) {
+                    const regimeText = `${regime.regime_type} (${regime.trend_direction})`;
+                    document.getElementById('currentRegime').textContent = regimeText;
+                    document.getElementById('currentRegime').style.color = regime.confidence > 0.7 ? '#10b981' : '#f59e0b';
+                }
+
+                // Update Trade Setups
+                updateTradeSetups(regime, agents);
+
+                // Update Agent Activity
+                updateAgentActivity(agents);
+
+                // Update Recent Activity
+                updateRecentActivity(health, liveStatus);
+
+            } catch (e) {
+                console.error('Error updating status view:', e);
+            }
+        }
+
+        function updateTradeSetups(regime, agents) {
+            const setupsDiv = document.getElementById('tradeSetups');
+            setupsDiv.innerHTML = '';
+
+            if (!regime || !regime.is_valid) {
+                setupsDiv.innerHTML = `
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #9ca3af;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: 600; color: var(--text-primary);">Waiting for Data</div>
+                                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Insufficient bars for analysis</div>
+                            </div>
+                            <div style="padding: 4px 8px; background: #374151; border-radius: 4px; font-size: 11px; color: #9ca3af;">
+                                PENDING
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Determine setup quality based on regime and agents
+            const confidence = regime.confidence || 0;
+            const bias = regime.bias || 'NEUTRAL';
+            const regimeType = regime.regime_type || 'COMPRESSION';
+            
+            let setupQuality = 'NEUTRAL';
+            let setupColor = '#9ca3af';
+            let setupLabel = 'WAIT';
+            let setupReason = '';
+
+            if (confidence > 0.7 && (bias === 'BULLISH' || bias === 'BEARISH')) {
+                if (regimeType === 'TREND' || regimeType === 'EXPANSION') {
+                    setupQuality = 'GOOD';
+                    setupColor = '#10b981';
+                    setupLabel = 'GOOD SETUP';
+                    setupReason = `Strong ${bias.toLowerCase()} signal in ${regimeType.toLowerCase()} regime`;
+                }
+            } else if (confidence < 0.5 || regimeType === 'COMPRESSION') {
+                setupQuality = 'BAD';
+                setupColor = '#ef4444';
+                setupLabel = 'AVOID';
+                setupReason = `Low confidence (${(confidence * 100).toFixed(0)}%) or choppy market`;
+            } else {
+                setupQuality = 'NEUTRAL';
+                setupColor = '#f59e0b';
+                setupLabel = 'CAUTION';
+                setupReason = `Moderate confidence (${(confidence * 100).toFixed(0)}%) - wait for better setup`;
+            }
+
+            setupsDiv.innerHTML = `
+                <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${setupColor};">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${setupLabel}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${setupReason}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">
+                                Regime: ${regimeType} | Bias: ${bias} | Confidence: ${(confidence * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                        <div style="padding: 4px 8px; background: ${setupColor}20; border-radius: 4px; font-size: 11px; color: ${setupColor}; font-weight: 600;">
+                            ${setupLabel}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateAgentActivity(agents) {
+            const activityDiv = document.getElementById('agentActivity');
+            activityDiv.innerHTML = '';
+
+            if (!agents || !agents.agents) {
+                activityDiv.innerHTML = `
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">No agent data available</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const agentEntries = Object.entries(agents.agents);
+            if (agentEntries.length === 0) {
+                activityDiv.innerHTML = `
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px;">
+                        <div style="font-size: 12px; color: var(--text-secondary);">No active agents</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Sort by weight (most active first)
+            agentEntries.sort((a, b) => (b[1].current_weight || 0) - (a[1].current_weight || 0));
+
+            agentEntries.forEach(([name, data]) => {
+                const weight = (data.current_weight || 0) * 100;
+                const fitness = data.short_term || 0;
+                const barColor = weight > 20 ? '#10b981' : weight > 10 ? '#f59e0b' : '#9ca3af';
+                
+                activityDiv.innerHTML += `
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${barColor};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="font-weight: 600; color: var(--text-primary); font-size: 13px;">${name}</div>
+                            <div style="padding: 2px 8px; background: ${barColor}20; border-radius: 4px; font-size: 11px; color: ${barColor};">
+                                ${weight.toFixed(1)}% weight
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary);">
+                            <span>Fitness: ${(fitness * 100).toFixed(1)}%</span>
+                            <span>Status: ${weight > 5 ? 'Active' : 'Inactive'}</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function updateRecentActivity(health, liveStatus) {
+            const activityDiv = document.getElementById('recentActivity');
+            const activities = [];
+
+            if (liveStatus) {
+                if (liveStatus.is_running) {
+                    activities.push({
+                        time: new Date().toLocaleTimeString(),
+                        message: `Simulation running - ${liveStatus.bar_count || 0} bars processed`,
+                        type: 'info',
+                        color: '#10b981'
+                    });
+                }
+                if (liveStatus.stop_reason) {
+                    activities.push({
+                        time: new Date().toLocaleTimeString(),
+                        message: `Stopped: ${liveStatus.stop_reason}`,
+                        type: 'warning',
+                        color: '#f59e0b'
+                    });
+                }
+            }
+
+            if (health) {
+                if (health.is_running && !health.is_paused) {
+                    activities.push({
+                        time: new Date().toLocaleTimeString(),
+                        message: 'System running',
+                        type: 'success',
+                        color: '#10b981'
+                    });
+                } else if (health.is_paused) {
+                    activities.push({
+                        time: new Date().toLocaleTimeString(),
+                        message: 'System paused',
+                        type: 'warning',
+                        color: '#f59e0b'
+                    });
+                }
+            }
+
+            if (activities.length === 0) {
+                activityDiv.innerHTML = `
+                    <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; color: var(--text-secondary);">
+                        No recent activity
+                    </div>
+                `;
+                return;
+            }
+
+            // Show last 5 activities
+            activities.slice(-5).reverse().forEach(activity => {
+                activityDiv.innerHTML = `
+                    <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 2px solid ${activity.color};">
+                        <div>
+                            <div style="color: var(--text-primary); font-size: 11px;">${activity.message}</div>
+                            <div style="color: var(--text-secondary); font-size: 10px; margin-top: 2px;">${activity.time}</div>
+                        </div>
+                        <div style="width: 8px; height: 8px; background: ${activity.color}; border-radius: 50%;"></div>
+                    </div>
+                ` + activityDiv.innerHTML;
+            });
         }
 
         // --- Navigation ---
@@ -918,6 +1241,12 @@
                     btnStart.disabled = false; btnStop.disabled = true; btnPause.disabled = true;
                 }
                 document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+
+                // Update status view if it's visible
+                const statusView = document.getElementById('perf-status-view');
+                if (statusView && statusView.style.display !== 'none') {
+                    updateStatusView();
+                }
 
                 // 2. Webull Dashboard Updates
                 const fmt = (n) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(n);
