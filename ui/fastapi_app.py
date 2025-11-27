@@ -9,8 +9,9 @@ from typing import List, Optional
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, Response, FileResponse, JSONResponse
 from pydantic import BaseModel
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -237,6 +238,30 @@ async def root():
     """,
         media_type="text/html"
     )
+
+
+@app.get("/manifest.json")
+async def get_manifest():
+    """Serve PWA manifest.json."""
+    from pathlib import Path
+    manifest_path = Path(__file__).parent / "manifest.json"
+    if manifest_path.exists():
+        manifest_content = manifest_path.read_text(encoding='utf-8')
+        return JSONResponse(content=json.loads(manifest_content))
+    else:
+        raise HTTPException(status_code=404, detail="Manifest not found")
+
+
+@app.get("/service-worker.js")
+async def get_service_worker():
+    """Serve PWA service worker."""
+    from pathlib import Path
+    sw_path = Path(__file__).parent / "service-worker.js"
+    if sw_path.exists():
+        sw_content = sw_path.read_text(encoding='utf-8')
+        return Response(content=sw_content, media_type="application/javascript")
+    else:
+        raise HTTPException(status_code=404, detail="Service worker not found")
 
 
 @app.get("/dashboard")
