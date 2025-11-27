@@ -164,6 +164,30 @@
         .btn-pause { background: #f59e0b; color: white; }
         .btn-kill { background: #b91c1c; color: white; }
 
+        /* DateTime Input Styling */
+        .datetime-input {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .datetime-input:hover {
+            border-color: var(--nav-accent) !important;
+            background: var(--card-bg) !important;
+        }
+        .datetime-input:focus {
+            outline: none;
+            border-color: var(--nav-accent) !important;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+        }
+        /* Make datetime-local input look like a button */
+        .datetime-input::-webkit-calendar-picker-indicator {
+            cursor: pointer;
+            opacity: 0.8;
+            filter: invert(1);
+        }
+        .datetime-input::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+        }
+
         /* --- Views Container --- */
         .content-container {
             flex: 1;
@@ -416,15 +440,19 @@
                     <option value="QQQ">QQQ</option>
                 </select>
                 <input type="datetime-local" id="simStartTime" 
+                       class="datetime-input"
                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                              max-width: 180px; display: inline-block; font-size: 13px;"
-                       title="Start date and time for simulation (YYYY-MM-DDTHH:MM)">
+                              width: 180px; height: 38px; display: inline-block; font-size: 13px; cursor: pointer;
+                              box-sizing: border-box;"
+                       title="Click to select start date and time">
                 <input type="datetime-local" id="simEndTime" 
+                       class="datetime-input"
                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                              max-width: 180px; display: inline-block; font-size: 13px;"
-                       title="End date and time for simulation (YYYY-MM-DDTHH:MM)">
+                              width: 180px; height: 38px; display: inline-block; font-size: 13px; cursor: pointer;
+                              box-sizing: border-box;"
+                       title="Click to select end date and time">
                 <select id="replaySpeed" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
@@ -696,6 +724,23 @@
             // Set default end time (now)
             endTimeInput.value = formatDateTimeLocal(now);
             
+            // Make inputs clickable to show picker
+            [startTimeInput, endTimeInput].forEach(input => {
+                // Ensure click opens picker
+                input.addEventListener('click', function() {
+                    this.showPicker && this.showPicker();
+                });
+                
+                // Add focus styling
+                input.addEventListener('focus', function() {
+                    this.style.borderColor = 'var(--nav-accent)';
+                });
+                
+                input.addEventListener('blur', function() {
+                    this.style.borderColor = 'var(--border-color)';
+                });
+            });
+            
             console.log('DateTime inputs initialized');
         }
         
@@ -800,11 +845,19 @@
                 let body = {};
 
                 if (action === 'start') {
-                    // Default start params
-                    body = {}; 
+                    // Start live trading
+                    endpoint = '/live/start';
+                    body = {
+                        symbols: ["QQQ", "SPY"],
+                        broker_type: "paper",
+                        offline_mode: false
+                    };
                 } else if (action === 'stop') {
                     // Stop live trading/simulation
                     endpoint = '/live/stop';
+                } else if (action === 'pause') {
+                    // Pause/resume trading
+                    endpoint = '/pause';
                 } else if (action === 'kill') {
                     // Toggle logic needed or assume engage? Assuming toggle based on UI logic is complex, 
                     // let's assume this button ENGAGES kill switch for safety.
