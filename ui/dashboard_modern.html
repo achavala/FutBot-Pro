@@ -970,18 +970,16 @@
                 return;
             }
 
-            // Show last 5 activities
-            activities.slice(-5).reverse().forEach(activity => {
-                activityDiv.innerHTML = `
-                    <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 2px solid ${activity.color};">
-                        <div>
-                            <div style="color: var(--text-primary); font-size: 11px;">${activity.message}</div>
-                            <div style="color: var(--text-secondary); font-size: 10px; margin-top: 2px;">${activity.time}</div>
-                        </div>
-                        <div style="width: 8px; height: 8px; background: ${activity.color}; border-radius: 50%;"></div>
+            // Show last 5 activities (most recent first)
+            activityDiv.innerHTML = activities.slice(-5).reverse().map(activity => `
+                <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 2px solid ${activity.color}; margin-bottom: 6px;">
+                    <div>
+                        <div style="color: var(--text-primary); font-size: 11px;">${activity.message}</div>
+                        <div style="color: var(--text-secondary); font-size: 10px; margin-top: 2px;">${activity.time}</div>
                     </div>
-                ` + activityDiv.innerHTML;
-            });
+                    <div style="width: 8px; height: 8px; background: ${activity.color}; border-radius: 50%;"></div>
+                </div>
+            `).join('');
         }
 
         // --- Navigation ---
