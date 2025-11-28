@@ -254,8 +254,20 @@ class LiveTradingLoop:
                                     
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
-                                        if bar.timestamp > self.data_feed.end_date:
-                                            logger.info(f"✅ [LiveLoop] Reached end_time {self.data_feed.end_date} for {symbol}")
+                                        # Ensure both timestamps are timezone-aware for comparison
+                                        bar_ts = bar.timestamp
+                                        end_ts = self.data_feed.end_date
+                                        
+                                        # Make timezone-aware if needed
+                                        if bar_ts.tzinfo is None:
+                                            from datetime import timezone
+                                            bar_ts = bar_ts.replace(tzinfo=timezone.utc)
+                                        if end_ts.tzinfo is None:
+                                            from datetime import timezone
+                                            end_ts = end_ts.replace(tzinfo=timezone.utc)
+                                        
+                                        if bar_ts > end_ts:
+                                            logger.info(f"✅ [LiveLoop] Reached end_time {end_ts} for {symbol} (bar timestamp: {bar_ts})")
                                             self.stop_reason = "end_time_reached"
                                             self.is_running = False
                                             break
@@ -288,8 +300,20 @@ class LiveTradingLoop:
                                 if bar:
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
-                                        if bar.timestamp > self.data_feed.end_date:
-                                            logger.info(f"✅ [LiveLoop] Reached end_time {self.data_feed.end_date} for {symbol}")
+                                        # Ensure both timestamps are timezone-aware for comparison
+                                        bar_ts = bar.timestamp
+                                        end_ts = self.data_feed.end_date
+                                        
+                                        # Make timezone-aware if needed
+                                        if bar_ts.tzinfo is None:
+                                            from datetime import timezone
+                                            bar_ts = bar_ts.replace(tzinfo=timezone.utc)
+                                        if end_ts.tzinfo is None:
+                                            from datetime import timezone
+                                            end_ts = end_ts.replace(tzinfo=timezone.utc)
+                                        
+                                        if bar_ts > end_ts:
+                                            logger.info(f"✅ [LiveLoop] Reached end_time {end_ts} for {symbol} (bar timestamp: {bar_ts})")
                                             self.stop_reason = "end_time_reached"
                                             self.is_running = False
                                             break
