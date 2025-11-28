@@ -119,7 +119,7 @@ class LiveTradingLoop:
             logger.info(f"✅ [LiveLoop] Data feed connected successfully")
             # Preload bars - request 100 bars to ensure we get at least 50+ bars
             # This speeds up startup by loading historical data immediately
-                    logger.info(f"🔵 [LiveLoop] Preloading bars for {symbol}...")(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
+            logger.info(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
             subscribe_result = self.data_feed.subscribe(self.config.symbols, preload_bars=100)  # Preload 100 bars for faster startup
             logger.info(f"✅ [LiveLoop] Subscribe result: {subscribe_result}")
             
