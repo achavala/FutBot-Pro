@@ -1284,10 +1284,12 @@
             const replaySpeedInput = document.getElementById('replaySpeed');
             const replaySpeed = replaySpeedInput ? parseFloat(replaySpeedInput.value) : 600.0;
             
+            // Note: broker_type="cached" + offline_mode=true ensures synthetic bars are safe
+            // Synthetic bars are ONLY generated in cached/offline mode, never in live trading
             const payload = {
                 symbols: [selectedSymbol], // Use selected symbol only
-                broker_type: "cached",   // Offline mode
-                offline_mode: true,
+                broker_type: "cached",   // Offline mode (synthetic bars safe here)
+                offline_mode: true,      // Explicitly offline (prevents live trading with synthetic data)
                 fixed_investment_amount: 10000.0, // $10k per trade for simulation
                 replay_speed: replaySpeed
             };
