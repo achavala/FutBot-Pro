@@ -1842,6 +1842,11 @@
             }
         }
         
+        // CRITICAL: Assign to window IMMEDIATELY after function definition
+        window.initDateTimeDropdowns = initDateTimeDropdowns;
+        console.log('✅ initDateTimeDropdowns assigned to window:', typeof window.initDateTimeDropdowns);
+        console.log('✅ Window.initDateTimeDropdowns exists:', 'initDateTimeDropdowns' in window);
+        
         // Also expose a test function
         window.testDropdowns = function() {
             console.log('🧪 Testing dropdowns...');
