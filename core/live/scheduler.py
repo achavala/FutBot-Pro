@@ -580,6 +580,12 @@ class LiveTradingLoop:
         
         # Get trade decision (includes options agent now)
         intent = self.controller.decide(signal, market_state, self.agents)
+        
+        # Diagnostic logging for trade execution
+        logger.info(f"🔍 [TradeDiagnostic] Symbol: {symbol}, Bar: {self.bar_count}")
+        logger.info(f"🔍 [TradeDiagnostic] Regime: {signal.regime_type}, Confidence: {signal.confidence:.2f}, Bias: {signal.bias}")
+        logger.info(f"🔍 [TradeDiagnostic] Intent valid: {intent.is_valid}, Position delta: {intent.position_delta:.4f}, Confidence: {intent.confidence:.2f}")
+        logger.info(f"🔍 [TradeDiagnostic] Reason: {intent.reason}")
 
         # Get current position from broker
         positions = self.executor.broker_client.get_positions(symbol)
@@ -644,6 +650,7 @@ class LiveTradingLoop:
 
         # Execute if valid
         if intent.is_valid and intent.position_delta != 0:
+            logger.info(f"✅ [TradeExecution] Executing trade: {symbol}, Delta: {intent.position_delta:.4f}, Reason: {intent.reason}")
             # Get investment amount from asset profile or config
             if self.asset_profiles and symbol in self.asset_profiles:
                 profile = self.asset_profiles[symbol]

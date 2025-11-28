@@ -252,10 +252,22 @@ class AlpacaDataFeed(BaseDataFeed):
         try:
             from alpaca.data.requests import StockBarsRequest
             
-            # Alpaca paper trading doesn't have access to recent SIP data
-            # Use delayed data (15+ minutes old) to avoid subscription errors
-            end_time = datetime.now(timezone.utc) - timedelta(minutes=15)  # Delayed data
-            start_time = end_time - timedelta(minutes=10)  # Get last 10 minutes of delayed data
+            # For live trading, try to get real-time data first, then fall back to delayed
+            # Check if we're in live mode (not paper trading)
+            is_paper = "paper" in str(self.base_url).lower() if hasattr(self, 'base_url') else True
+            
+            if is_paper:
+                # Alpaca paper trading doesn't have access to recent SIP data
+                # Use delayed data (15+ minutes old) to avoid subscription errors
+                end_time = datetime.now(timezone.utc) - timedelta(minutes=15)  # Delayed data
+                start_time = end_time - timedelta(minutes=10)  # Get last 10 minutes of delayed data
+                logger.debug(f"Using delayed data for paper trading: {symbol}")
+            else:
+                # Live trading - try to get recent data (may need subscription)
+                # Try last 5 minutes first
+                end_time = datetime.now(timezone.utc)
+                start_time = end_time - timedelta(minutes=5)
+                logger.debug(f"Attempting real-time data for live trading: {symbol}")
             
             request = StockBarsRequest(
                 symbol_or_symbols=symbol,
