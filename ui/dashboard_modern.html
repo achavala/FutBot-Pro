@@ -1680,7 +1680,8 @@
         }
 
         // --- Initialize Combined Date/Time Dropdowns ---
-        function initDateTimeDropdowns() {
+        // Make function globally available
+        window.initDateTimeDropdowns = function initDateTimeDropdowns() {
             console.log('🔄 initDateTimeDropdowns() called');
             const startDateTimeSelect = document.getElementById('simStartDateTime');
             const endDateTimeSelect = document.getElementById('simEndDateTime');
