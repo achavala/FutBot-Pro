@@ -431,28 +431,31 @@
             </div>
             <div class="header-controls">
                 <!-- Simulation Controls (shown when Simulate button is visible) -->
-                <select id="simSymbol" 
+                <select id="simStartDate" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               max-width: 100px; display: inline-block;"
-                        title="Select symbol for simulation">
-                    <option value="SPY" selected>SPY</option>
-                    <option value="QQQ">QQQ</option>
+                               width: 140px; display: inline-block;"
+                        title="Select start date">
                 </select>
-                <input type="datetime-local" id="simStartTime" 
-                       class="datetime-input"
-                       style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
-                              background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                              width: 180px; height: 38px; display: inline-block; font-size: 13px; cursor: pointer;
-                              box-sizing: border-box;"
-                       title="Click to select start date and time">
-                <input type="datetime-local" id="simEndTime" 
-                       class="datetime-input"
-                       style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
-                              background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                              width: 180px; height: 38px; display: inline-block; font-size: 13px; cursor: pointer;
-                              box-sizing: border-box;"
-                       title="Click to select end date and time">
+                <select id="simStartTime" 
+                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                               width: 100px; display: inline-block;"
+                        title="Select start time">
+                </select>
+                <span style="color: var(--text-secondary); margin-right: 8px;">to</span>
+                <select id="simEndDate" 
+                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                               width: 140px; display: inline-block;"
+                        title="Select end date">
+                </select>
+                <select id="simEndTime" 
+                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
+                               width: 100px; display: inline-block;"
+                        title="Select end time">
+                </select>
                 <select id="replaySpeed" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
@@ -1641,111 +1644,145 @@
             setTimeout(() => t.className = 'toast', 3000);
         }
 
-        // --- Initialize DateTime Inputs ---
-        function initDateTimeInputs() {
-            const startTimeInput = document.getElementById('simStartTime');
-            const endTimeInput = document.getElementById('simEndTime');
+        // --- Initialize Date/Time Dropdowns ---
+        function initDateTimeDropdowns() {
+            const startDateSelect = document.getElementById('simStartDate');
+            const startTimeSelect = document.getElementById('simStartTime');
+            const endDateSelect = document.getElementById('simEndDate');
+            const endTimeSelect = document.getElementById('simEndTime');
             
-            if (!startTimeInput || !endTimeInput) {
-                console.warn('DateTime inputs not found');
+            if (!startDateSelect || !startTimeSelect || !endDateSelect || !endTimeSelect) {
+                console.warn('Date/Time dropdowns not found');
                 return;
             }
             
-            // Set default values: Start = 3 months ago, End = now
+            // Generate date options: Last 3 months of weekdays
             const now = new Date();
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(now.getMonth() - 3);
+            const dates = [];
+            for (let i = 0; i < 90; i++) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - i);
+                // Only include weekdays (Mon-Fri)
+                if (date.getDay() >= 1 && date.getDay() <= 5) {
+                    const dateStr = date.toISOString().split('T')[0];
+                    const displayStr = date.toLocaleDateString('en-US', { 
+                        weekday: 'short', 
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric' 
+                    });
+                    dates.push({ value: dateStr, display: displayStr, date: new Date(date) });
+                }
+            }
             
-            // Format for datetime-local input (YYYY-MM-DDTHH:MM)
-            const formatDateTimeLocal = (date) => {
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                return `${year}-${month}-${day}T${hours}:${minutes}`;
-            };
-            
-            // Set default start time (3 months ago, 9:30 AM market open)
-            const defaultStart = new Date(threeMonthsAgo);
-            defaultStart.setHours(9, 30, 0, 0);
-            startTimeInput.value = formatDateTimeLocal(defaultStart);
-            
-            // Set default end time (now)
-            endTimeInput.value = formatDateTimeLocal(now);
-            
-            // Make inputs clickable to show picker
-            [startTimeInput, endTimeInput].forEach(input => {
-                // Ensure click opens picker
-                input.addEventListener('click', function() {
-                    this.showPicker && this.showPicker();
-                });
+            // Populate date dropdowns
+            dates.forEach(d => {
+                const option1 = document.createElement('option');
+                option1.value = d.value;
+                option1.textContent = d.display;
+                startDateSelect.appendChild(option1);
                 
-                // Add focus styling
-                input.addEventListener('focus', function() {
-                    this.style.borderColor = 'var(--nav-accent)';
-                });
-                
-                input.addEventListener('blur', function() {
-                    this.style.borderColor = 'var(--border-color)';
-                });
+                const option2 = document.createElement('option');
+                option2.value = d.value;
+                option2.textContent = d.display;
+                endDateSelect.appendChild(option2);
             });
             
-            console.log('DateTime inputs initialized');
+            // Generate time options (market hours: 9:30 AM - 4:00 PM ET)
+            const times = [];
+            // Market open times
+            times.push({ value: '09:30', display: '9:30 AM' });
+            times.push({ value: '10:00', display: '10:00 AM' });
+            times.push({ value: '11:00', display: '11:00 AM' });
+            times.push({ value: '12:00', display: '12:00 PM' });
+            times.push({ value: '13:00', display: '1:00 PM' });
+            times.push({ value: '14:00', display: '2:00 PM' });
+            times.push({ value: '15:00', display: '3:00 PM' });
+            // Market close time
+            times.push({ value: '16:00', display: '4:00 PM' });
+            
+            // Populate time dropdowns
+            times.forEach(t => {
+                const option1 = document.createElement('option');
+                option1.value = t.value;
+                option1.textContent = t.display;
+                startTimeSelect.appendChild(option1);
+                
+                const option2 = document.createElement('option');
+                option2.value = t.value;
+                option2.textContent = t.display;
+                endTimeSelect.appendChild(option2);
+            });
+            
+            // Set default values: Start = 3 months ago at 9:30 AM, End = today at 4:00 PM
+            const threeMonthsAgo = new Date(now);
+            threeMonthsAgo.setMonth(now.getMonth() - 3);
+            // Find first weekday
+            while (threeMonthsAgo.getDay() === 0 || threeMonthsAgo.getDay() === 6) {
+                threeMonthsAgo.setDate(threeMonthsAgo.getDate() - 1);
+            }
+            const defaultStartDate = threeMonthsAgo.toISOString().split('T')[0];
+            
+            // Find today or last weekday
+            const defaultEndDate = new Date(now);
+            while (defaultEndDate.getDay() === 0 || defaultEndDate.getDay() === 6) {
+                defaultEndDate.setDate(defaultEndDate.getDate() - 1);
+            }
+            const defaultEndDateStr = defaultEndDate.toISOString().split('T')[0];
+            
+            // Set defaults
+            startDateSelect.value = defaultStartDate;
+            startTimeSelect.value = '09:30';
+            endDateSelect.value = defaultEndDateStr;
+            endTimeSelect.value = '16:00';
+            
+            console.log('Date/Time dropdowns initialized');
         }
         
         // Initialize on page load
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initDateTimeInputs);
+            document.addEventListener('DOMContentLoaded', initDateTimeDropdowns);
         } else {
-            initDateTimeInputs();
+            initDateTimeDropdowns();
         }
 
-        // --- Auto-Start Data Collection ---
-        async function autoStartDataCollection() {
+        // --- Auto-Start Historical Simulation ---
+        async function autoStartHistoricalSimulation() {
             const btn = document.getElementById('btnSim');
             if (!btn) return;
             
-            // Get default values
-            const symbolSelect = document.getElementById('simSymbol');
-            const selectedSymbol = symbolSelect ? symbolSelect.value : 'SPY';
+            // Get values from dropdowns
+            const startDateSelect = document.getElementById('simStartDate');
+            const startTimeSelect = document.getElementById('simStartTime');
+            const endDateSelect = document.getElementById('simEndDate');
+            const endTimeSelect = document.getElementById('simEndTime');
             
-            const startTimeInput = document.getElementById('simStartTime');
-            const endTimeInput = document.getElementById('simEndTime');
+            if (!startDateSelect || !startTimeSelect || !endDateSelect || !endTimeSelect) {
+                console.warn('Date/Time dropdowns not found');
+                return;
+            }
             
-            // Set time window to last 3 months
-            const now = new Date();
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(now.getMonth() - 3);
+            const startDate = startDateSelect.value;
+            const startTime = startTimeSelect.value;
+            const endDate = endDateSelect.value;
+            const endTime = endTimeSelect.value;
             
-            const formatDateTimeLocal = (date) => {
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                return `${year}-${month}-${day}T${hours}:${minutes}`;
-            };
-            
-            const defaultStart = new Date(threeMonthsAgo);
-            defaultStart.setHours(9, 30, 0, 0);
-            const defaultEnd = new Date(now);
-            
-            if (startTimeInput) startTimeInput.value = formatDateTimeLocal(defaultStart);
-            if (endTimeInput) endTimeInput.value = formatDateTimeLocal(defaultEnd);
+            // Format for API (YYYY-MM-DDTHH:MM:SS)
+            const startDateTime = `${startDate}T${startTime}:00`;
+            const endDateTime = `${endDate}T${endTime}:00`;
             
             // Show toast
-            showToast('Starting data collection simulation...', 'success');
+            showToast('Starting historical simulation with SPY and QQQ...', 'success');
             
-            // Auto-start simulation with optimal settings
+            // Auto-start simulation with both symbols
             const payload = {
-                symbols: [selectedSymbol],
+                symbols: ["SPY", "QQQ"], // Both symbols automatically
                 broker_type: "cached",
                 offline_mode: true,
                 fixed_investment_amount: 10000.0,
                 replay_speed: 600.0, // Fast speed
-                start_time: formatDateTimeLocal(defaultStart) + ':00',
-                end_time: formatDateTimeLocal(defaultEnd) + ':00'
+                start_time: startDateTime,
+                end_time: endDateTime
             };
             
             try {
@@ -1756,7 +1793,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showToast('Data collection started! Will auto-stop at 30+ bars.', 'success');
+                    showToast('Historical simulation started! Processing SPY and QQQ...', 'success');
                     updateData();
                 } else {
                     throw new Error(data.detail || 'Failed to start');
@@ -1779,27 +1816,27 @@
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Starting...';
             
-            // Get selected symbol
-            const symbolSelect = document.getElementById('simSymbol');
-            const selectedSymbol = symbolSelect ? symbolSelect.value : 'SPY';
+            // Get values from dropdowns
+            const startDateSelect = document.getElementById('simStartDate');
+            const startTimeSelect = document.getElementById('simStartTime');
+            const endDateSelect = document.getElementById('simEndDate');
+            const endTimeSelect = document.getElementById('simEndTime');
             
-            // Get start time and end time (datetime-local format: YYYY-MM-DDTHH:MM)
-            const startTimeInput = document.getElementById('simStartTime');
-            const endTimeInput = document.getElementById('simEndTime');
-            
-            // Convert datetime-local to ISO format for backend (YYYY-MM-DDTHH:MM:SS)
-            let startTime = null;
-            let endTime = null;
-            
-            if (startTimeInput && startTimeInput.value) {
-                // datetime-local returns YYYY-MM-DDTHH:MM, convert to ISO with seconds
-                startTime = startTimeInput.value + ':00';
+            if (!startDateSelect || !startTimeSelect || !endDateSelect || !endTimeSelect) {
+                showToast('Date/Time dropdowns not found', 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                return;
             }
             
-            if (endTimeInput && endTimeInput.value) {
-                // datetime-local returns YYYY-MM-DDTHH:MM, convert to ISO with seconds
-                endTime = endTimeInput.value + ':00';
-            }
+            const startDate = startDateSelect.value;
+            const startTime = startTimeSelect.value;
+            const endDate = endDateSelect.value;
+            const endTime = endTimeSelect.value;
+            
+            // Format for API (YYYY-MM-DDTHH:MM:SS)
+            const startDateTime = `${startDate}T${startTime}:00`;
+            const endDateTime = `${endDate}T${endTime}:00`;
             
             // Validate: end_time must be after start_time
             if (startTime && endTime) {
