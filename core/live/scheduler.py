@@ -136,10 +136,7 @@ class LiveTradingLoop:
                         # Check if bar already exists (by timestamp)
                         if not any(b.timestamp == bar.timestamp for b in self.bar_history[symbol]):
                             self.bar_history[symbol].append(bar)
-                            # CRITICAL: Process preloaded bars through _process_bar to trigger trades
-                            if self.config.testing_mode:
-                                logger.info(f"🔥 [Preload] Processing preloaded bar for {symbol} to trigger trades")
-                                self._process_bar(symbol, bar)
+                            # Don't process preloaded bars - let the loop process them naturally
                     
                     loaded_count = len(self.bar_history[symbol])
                     logger.info(f"Loaded {loaded_count} bars for {symbol} (preloaded: {len(preloaded)})")
@@ -453,79 +450,9 @@ class LiveTradingLoop:
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
         
-        # Log every bar to confirm _process_bar is being called
-        logger.info(f"🔵 [LiveLoop] _process_bar called: bar_count={self.bar_count}, symbol={symbol}, testing_mode={getattr(self.config, 'testing_mode', False)}")
-        
-        # ULTRA FORCE: In testing_mode, execute a trade immediately on EVERY bar (for immediate execution)
-        if self.config.testing_mode:
-            logger.info(f"🔥 [ULTRA FORCE] testing_mode is TRUE - executing trade NOW!")
-            logger.info(f"🔥 [ULTRA FORCE] Bar #{self.bar_count} - FORCING TRADE EXECUTION NOW!")
-            try:
-                from core.policy.types import FinalTradeIntent
-                from core.regime.types import RegimeSignal, RegimeType, TrendDirection, VolatilityLevel, Bias
-                from datetime import datetime, timezone
-                
-                # Get current price
-                current_price = bar.close
-                
-                # Create a forced trade intent
-                forced_intent = FinalTradeIntent(
-                    position_delta=0.1,  # Force buy
-                    confidence=0.1,
-                    primary_agent="trend_agent",
-                    contributing_agents=["trend_agent"],
-                    reason="ULTRA FORCE: Immediate trade execution",
-                    is_valid=True,
-                )
-                
-                # Get current position
-                positions = self.executor.broker_client.get_positions(symbol)
-                current_position = positions[0].quantity if positions else 0.0
-                
-                # Execute the trade directly
-                logger.info(f"🔥 [ULTRA FORCE] Executing forced trade: {symbol}, Price: ${current_price:.2f}, Position: {current_position}")
-                result = self.executor.apply_intent(
-                    forced_intent,
-                    symbol,
-                    current_price,
-                    current_position,
-                    risk_constraints={}
-                )
-                
-                if result.success:
-                    logger.info(f"✅ [ULTRA FORCE] Trade executed successfully! Order ID: {result.order.order_id if result.order else 'N/A'}")
-                    # Update portfolio using add_position
-                    if result.position_delta_applied != 0:
-                        self.portfolio.add_position(
-                            symbol,
-                            result.position_delta_applied,
-                            current_price,
-                            bar.timestamp
-                        )
-                        logger.info(f"✅ [ULTRA FORCE] Position updated: {symbol}, Quantity: {result.position_delta_applied}, Price: ${current_price:.2f}")
-                        
-                        # Record trade in trade history manually
-                        from core.portfolio.manager import Trade
-                        trade = Trade(
-                            symbol=symbol,
-                            entry_time=bar.timestamp,
-                            exit_time=bar.timestamp,  # Same for now
-                            entry_price=current_price,
-                            exit_price=current_price,
-                            quantity=abs(result.position_delta_applied),
-                            pnl=0.0,  # Will be calculated on exit
-                            pnl_pct=0.0,  # Will be calculated on exit
-                            reason="ULTRA FORCE",
-                            agent="trend_agent"
-                        )
-                        self.portfolio.trade_history.append(trade)
-                        logger.info(f"✅ [ULTRA FORCE] Trade recorded in history: {symbol} {result.position_delta_applied} @ ${current_price:.2f}")
-                else:
-                    logger.error(f"❌ [ULTRA FORCE] Trade execution failed: {result.reason}")
-            except Exception as e:
-                logger.error(f"❌ [ULTRA FORCE] Exception during forced trade: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
+        # Log every 10 bars to reduce log noise
+        if self.bar_count % 10 == 0:
+            logger.debug(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
         
         if self.bar_count % 10 == 0:
             logger.info(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
@@ -733,20 +660,8 @@ class LiveTradingLoop:
         context = {"testing_mode": self.config.testing_mode}
         intent = self.controller.decide(signal, market_state, self.agents, context=context)
         
-        # ULTRA FORCE MODE: If no valid intent in testing_mode, create one immediately
-        if self.config.testing_mode and (not intent.is_valid or intent.position_delta == 0):
-            logger.info(f"🔥 [ULTRA FORCE] No valid intent, creating forced trade for {symbol}")
-            from core.policy.types import FinalTradeIntent
-            # Force a buy order
-            intent = FinalTradeIntent(
-                position_delta=0.1,  # Force minimum position
-                confidence=0.1,
-                primary_agent="trend_agent",
-                contributing_agents=["trend_agent"],
-                reason="ULTRA FORCE: Market closing soon - executing trade now",
-                is_valid=True,
-            )
-            logger.info(f"🔥 [ULTRA FORCE] Created forced trade intent: {intent}")
+        # REMOVED: ULTRA FORCE mode that created fake trades
+        # Trades will only execute if agents generate valid signals
         
         # Diagnostic logging for trade execution
         logger.info(f"🔍 [TradeDiagnostic] Symbol: {symbol}, Bar: {self.bar_count}")
