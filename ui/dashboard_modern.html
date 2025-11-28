@@ -1653,19 +1653,24 @@
             
             console.log('Dropdown elements:', {
                 start: startDateTimeSelect ? 'found' : 'NOT FOUND',
-                end: endDateTimeSelect ? 'found' : 'NOT FOUND'
+                end: endDateTimeSelect ? 'found' : 'NOT FOUND',
+                startId: startDateTimeSelect?.id,
+                endId: endDateTimeSelect?.id
             });
             
             if (!startDateTimeSelect || !endDateTimeSelect) {
                 console.error('❌ Date/Time dropdowns not found', {
                     start: !!startDateTimeSelect,
                     end: !!endDateTimeSelect,
-                    allSelects: document.querySelectorAll('select').length
+                    allSelects: document.querySelectorAll('select').length,
+                    allSelectIds: Array.from(document.querySelectorAll('select')).map(s => s.id)
                 });
+                // Retry after a short delay
+                setTimeout(initDateTimeDropdowns, 1000);
                 return;
             }
             
-            // Clear existing options first
+            // Clear existing options first (including placeholder)
             startDateTimeSelect.innerHTML = '';
             endDateTimeSelect.innerHTML = '';
             console.log('✅ Dropdowns cleared, starting to populate...');
