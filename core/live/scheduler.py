@@ -258,7 +258,7 @@ class LiveTradingLoop:
                             
                             # SYNTHETIC FALLBACK: If no bars and synthetic enabled, generate them
                             if not batch_bars and hasattr(self.data_feed, 'synthetic_enabled') and self.data_feed.synthetic_enabled:
-                                logger.info(f"🔄 No batch bars for {symbol}, generating synthetic bars")
+                                logger.info(f"🔄 [LiveLoop] No batch bars for {symbol}, generating synthetic bars")
                                 if hasattr(self.data_feed, '_generate_synthetic_bars'):
                                     batch_bars = self.data_feed._generate_synthetic_bars(symbol, count=10)
                                     if batch_bars:
@@ -266,9 +266,10 @@ class LiveTradingLoop:
                                         if symbol not in self.data_feed.cached_data:
                                             self.data_feed.cached_data[symbol] = []
                                         self.data_feed.cached_data[symbol].extend(batch_bars)
-                                        logger.info(f"✅ Generated {len(batch_bars)} synthetic bars for {symbol}")
+                                        logger.info(f"✅ [LiveLoop] Generated {len(batch_bars)} synthetic bars for {symbol}")
                             
                             if batch_bars:
+                                logger.info(f"🔵 [LiveLoop] Processing {len(batch_bars)} bars for {symbol}")
                                 logger.info(f"🔵 [LiveLoop] Got {len(batch_bars)} batch bars for {symbol}")
                                 for bar in batch_bars:
                                     if not self.is_running:
@@ -446,6 +447,8 @@ class LiveTradingLoop:
         """Process a single bar through the full pipeline."""
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
+        if self.bar_count % 10 == 0:
+            logger.info(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
 
         # Add to history (if not already present from preload)
         if not self.bar_history[symbol] or self.bar_history[symbol][-1].timestamp != bar.timestamp:
