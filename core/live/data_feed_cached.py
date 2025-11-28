@@ -350,18 +350,6 @@ class CachedDataFeed(BaseDataFeed):
                             logger.info(f"✅ [CachedDataFeed] Generated and added {len(synthetic_bars)} synthetic bars for {symbol}")
                             return bars
                 return bars  # Return what we have
-            
-            current_idx = self.current_indices.get(symbol, 0)
-            cached_bars = self.cached_data[symbol]
-            
-            # Get remaining bars needed
-            remaining = n - len(bars)
-            available = len(cached_bars) - current_idx
-            
-            if available > 0:
-                end_idx = min(current_idx + remaining, len(cached_bars))
-                bars.extend(cached_bars[current_idx:end_idx])
-                self.current_indices[symbol] = end_idx
         
         return bars
 
