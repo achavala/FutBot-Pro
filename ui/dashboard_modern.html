@@ -456,7 +456,7 @@
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
                                width: 200px; display: inline-block;"
                         title="Select start date and time">
-                    <option value="">Loading dates...</option>
+                    <option value="">Initializing...</option>
                 </select>
                 <span style="color: var(--text-secondary); margin-right: 8px;">to</span>
                 <select id="simEndDateTime" 
@@ -464,7 +464,7 @@
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
                                width: 200px; display: inline-block;"
                         title="Select end date and time">
-                    <option value="">Loading dates...</option>
+                    <option value="">Initializing...</option>
                 </select>
                 <select id="replaySpeed" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
@@ -1816,8 +1816,23 @@
                 initDateTimeDropdowns();
             } catch (e) {
                 console.error('❌ Error initializing dropdowns:', e);
+                // Show error in dropdown
+                const startSelect = document.getElementById('simStartDateTime');
+                const endSelect = document.getElementById('simEndDateTime');
+                if (startSelect) {
+                    startSelect.innerHTML = '<option value="">Error - Click to refresh</option>';
+                }
+                if (endSelect) {
+                    endSelect.innerHTML = '<option value="">Error - Click to refresh</option>';
+                }
             }
         }
+        
+        // IMMEDIATE initialization - run right now
+        (function() {
+            console.log('🚀 IMMEDIATE initialization starting...');
+            initializeOnLoad();
+        })();
         
         // Multiple initialization strategies to ensure it runs
         if (document.readyState === 'loading') {
@@ -1831,9 +1846,25 @@
         }
         
         // Also try after delays in case elements aren't ready
+        setTimeout(initializeOnLoad, 100);
         setTimeout(initializeOnLoad, 500);
         setTimeout(initializeOnLoad, 1000);
         setTimeout(initializeOnLoad, 2000);
+        setTimeout(initializeOnLoad, 3000);
+        
+        // Force initialization when page is fully loaded
+        window.addEventListener('load', function() {
+            console.log('📄 Window load event fired, forcing dropdown initialization');
+            setTimeout(initializeOnLoad, 100);
+        });
+        
+        // Also try on visibility change (when tab becomes visible)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                console.log('👁️ Tab became visible, re-initializing dropdowns');
+                setTimeout(initializeOnLoad, 100);
+            }
+        });
 
         // --- Auto-Start Historical Simulation ---
         async function autoStartHistoricalSimulation() {
