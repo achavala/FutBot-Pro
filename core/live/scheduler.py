@@ -117,8 +117,8 @@ class LiveTradingLoop:
             logger.info(f"🔵 [LiveLoop] Connecting data feed...")
             self.data_feed.connect()
             logger.info(f"✅ [LiveLoop] Data feed connected successfully")
-                    # Preload bars - request 100 bars to ensure we get at least 50+ bars
-                    # This speeds up startup by loading historical data immediately
+            # Preload bars - request 100 bars to ensure we get at least 50+ bars
+            # This speeds up startup by loading historical data immediately
                     logger.info(f"🔵 [LiveLoop] Preloading bars for {symbol}...")(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
             subscribe_result = self.data_feed.subscribe(self.config.symbols, preload_bars=100)  # Preload 100 bars for faster startup
             logger.info(f"✅ [LiveLoop] Subscribe result: {subscribe_result}")
@@ -143,9 +143,12 @@ class LiveTradingLoop:
                     # CRITICAL FIX: Update bars_per_symbol during preload
                     # This ensures bars_per_symbol reflects all bars, not just loop-processed ones
                     if loaded_count > 0:
-                        self.bars_per_symbol[symbol] = loaded_count
+                        # Ensure symbol case matches exactly (SPY not spy)
+                        symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                        self.bars_per_symbol[symbol_key] = loaded_count
                         self.bar_count = max(self.bar_count, loaded_count)
-                        logger.info(f"✅ [LiveLoop] Updated bars_per_symbol[{symbol}] = {loaded_count} (from preload)")
+                        logger.info(f"✅ [LiveLoop] Updated bars_per_symbol['{symbol_key}'] = {loaded_count} (from preload)")
+                        logger.info(f"✅ [LiveLoop] Current state: bar_count={self.bar_count}, bars_per_symbol={self.bars_per_symbol}")
                     
                     # Warn if we have fewer bars than desired, but continue anyway
                     if loaded_count < 50:
@@ -293,11 +296,14 @@ class LiveTradingLoop:
                                     
                                     self._process_bar(symbol, bar)
                                     bars_processed += 1
-                                    old_count = self.bars_per_symbol.get(symbol, 0)
-                                    self.bars_per_symbol[symbol] = old_count + 1
+                                    # Ensure symbol case matches exactly (SPY not spy)
+                                    symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                                    old_count = self.bars_per_symbol.get(symbol_key, 0)
+                                    self.bars_per_symbol[symbol_key] = old_count + 1
                                     consecutive_no_bars = 0
-                                    if self.bars_per_symbol[symbol] % 10 == 0:
-                                        logger.info(f"✅ [LiveLoop] {symbol} bars_per_symbol = {self.bars_per_symbol[symbol]} (processed bar #{bars_processed})")
+                                    if self.bars_per_symbol[symbol_key] % 10 == 0:
+                                        logger.info(f"✅ [LiveLoop] {symbol_key} bars_per_symbol = {self.bars_per_symbol[symbol_key]} (processed bar #{bars_processed})")
+                                        logger.info(f"✅ [LiveLoop] Current state: bar_count={self.bar_count}, bars_per_symbol={self.bars_per_symbol}")
                                 
                                 # Log progress every 100 bars (reduces I/O overhead)
                                 if self.bars_per_symbol.get(symbol, 0) % 100 == 0:
@@ -329,7 +335,7 @@ class LiveTradingLoop:
                                             bar = synthetic_bars[0]
                                             logger.info(f"✅ Generated synthetic bar for {symbol} in fallback loop")
                                 
-                                if bar:
+                    if bar:
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
                                         # Ensure both timestamps are timezone-aware for comparison
@@ -350,7 +356,7 @@ class LiveTradingLoop:
                                             self.is_running = False
                                             break
                                     
-                                    self._process_bar(symbol, bar)
+                        self._process_bar(symbol, bar)
                                     bars_processed += 1
                                     bars_this_iteration += 1
                                     self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
@@ -386,9 +392,11 @@ class LiveTradingLoop:
                             self.last_bar_time = bar.timestamp
                             self._process_bar(symbol, bar)
                             bars_processed += 1
-                            self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                            # Ensure symbol case matches exactly (SPY not spy)
+                            symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                            self.bars_per_symbol[symbol_key] = self.bars_per_symbol.get(symbol_key, 0) + 1
                             consecutive_no_bars = 0
-                            logger.debug(f"📊 [LiveLoop] Processed bar for {symbol}: {bar.timestamp}, Total bars: {self.bars_per_symbol[symbol]}")
+                            logger.debug(f"📊 [LiveLoop] Processed bar for {symbol_key}: {bar.timestamp}, Total bars: {self.bars_per_symbol[symbol_key]}")
                         else:
                             logger.debug(f"⚠️ [LiveLoop] No bar available for {symbol} (timeout or no data)")
 
