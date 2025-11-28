@@ -474,7 +474,7 @@
                 <div class="wb-sidebar">
                     <div style="margin-bottom: 30px;">
                         <div class="wb-title">TOTAL ACCOUNT VALUE</div>
-                        <div class="wb-value"><span id="wbTotalValue">$0.00</span> <span class="wb-badge">LIVE</span></div>
+                        <div class="wb-value"><span id="wbTotalValue">$100,000.00</span> <span class="wb-badge">LIVE</span></div>
                     </div>
                     
                     <div style="height: 150px; margin-bottom: 30px;">
@@ -1635,13 +1635,20 @@
 
         // --- Initialize Combined Date/Time Dropdowns ---
         function initDateTimeDropdowns() {
+            console.log('🔄 initDateTimeDropdowns() called');
             const startDateTimeSelect = document.getElementById('simStartDateTime');
             const endDateTimeSelect = document.getElementById('simEndDateTime');
             
+            console.log('Dropdown elements:', {
+                start: startDateTimeSelect ? 'found' : 'NOT FOUND',
+                end: endDateTimeSelect ? 'found' : 'NOT FOUND'
+            });
+            
             if (!startDateTimeSelect || !endDateTimeSelect) {
-                console.warn('Date/Time dropdowns not found', {
+                console.error('❌ Date/Time dropdowns not found', {
                     start: !!startDateTimeSelect,
-                    end: !!endDateTimeSelect
+                    end: !!endDateTimeSelect,
+                    allSelects: document.querySelectorAll('select').length
                 });
                 return;
             }
@@ -1649,6 +1656,7 @@
             // Clear existing options first
             startDateTimeSelect.innerHTML = '';
             endDateTimeSelect.innerHTML = '';
+            console.log('✅ Dropdowns cleared, starting to populate...');
             
             // Generate combined date+time options: Last 3 months of weekdays with market hours
             const now = new Date();
@@ -2003,12 +2011,25 @@
                 // Sidebar Values - Always use initial_capital as base, or default to 100000
                 const initialCapital = stats.initial_capital || 100000;
                 const currentCapital = stats.current_capital || initialCapital;
-                const accountValue = currentCapital > 0 ? currentCapital : initialCapital;
+                // Always show at least initial capital (100K)
+                const accountValue = Math.max(currentCapital, initialCapital);
                 
-                document.getElementById('wbTotalValue').textContent = fmt(accountValue);
-                document.getElementById('wbCash').textContent = fmt(accountValue);
-                document.getElementById('wbBP').textContent = fmt(accountValue); // Simplified
-                document.getElementById('wbOptBP').textContent = fmt(accountValue);
+                const totalValueEl = document.getElementById('wbTotalValue');
+                if (totalValueEl) {
+                    totalValueEl.textContent = fmt(accountValue);
+                }
+                const cashEl = document.getElementById('wbCash');
+                if (cashEl) {
+                    cashEl.textContent = fmt(accountValue);
+                }
+                const bpEl = document.getElementById('wbBP');
+                if (bpEl) {
+                    bpEl.textContent = fmt(accountValue);
+                }
+                const optBpEl = document.getElementById('wbOptBP');
+                if (optBpEl) {
+                    optBpEl.textContent = fmt(accountValue);
+                }
                 
                 const pnl = stats.current_capital - stats.initial_capital;
                 const pnlEl = document.getElementById('wbOpenPnL');
