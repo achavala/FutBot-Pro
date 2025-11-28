@@ -1984,8 +1984,11 @@
                 // 2. Webull Dashboard Updates
                 const fmt = (n) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(n);
                 
-                // Sidebar Values - Use initial_capital if current_capital is 0
-                const accountValue = stats.current_capital > 0 ? stats.current_capital : (stats.initial_capital || 100000);
+                // Sidebar Values - Always use initial_capital as base, or default to 100000
+                const initialCapital = stats.initial_capital || 100000;
+                const currentCapital = stats.current_capital || initialCapital;
+                const accountValue = currentCapital > 0 ? currentCapital : initialCapital;
+                
                 document.getElementById('wbTotalValue').textContent = fmt(accountValue);
                 document.getElementById('wbCash').textContent = fmt(accountValue);
                 document.getElementById('wbBP').textContent = fmt(accountValue); // Simplified
