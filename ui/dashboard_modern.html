@@ -1692,7 +1692,9 @@
 
         // --- Init ---
         setInterval(updateData, 2000);
-        updateData();
+        setInterval(checkMarketStatus, 60000); // Check market status every minute
+        updateData(); // Initial load
+        checkMarketStatus(); // Initial market status check
 
     </script>
     
