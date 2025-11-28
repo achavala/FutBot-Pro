@@ -512,6 +512,20 @@ async def save_weights():
     return {"status": "saved", "message": "Weights saved successfully"}
 
 
+@app.get("/visualizations/equity-curve-data")
+async def get_equity_curve_data():
+    """Get equity curve data as JSON for sparkline generation."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    equity_curve = list(bot_manager.portfolio.equity_curve) if bot_manager.portfolio.equity_curve else []
+    if not equity_curve:
+        return {"equity_curve": [], "initial_capital": bot_manager.portfolio.initial_capital if bot_manager.portfolio else 100000.0}
+    return {
+        "equity_curve": equity_curve,
+        "initial_capital": bot_manager.portfolio.initial_capital
+    }
+
+
 @app.get("/visualizations/equity-curve")
 async def get_equity_curve():
     """Get equity curve plot as PNG."""

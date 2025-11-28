@@ -747,12 +747,36 @@
             }
         }
         
+        // --- Analytics Data Cache ---
+        let analyticsCache = {
+            stats: null,
+            regime: null,
+            liveStatus: null,
+            health: null,
+            lastFetch: 0,
+            cacheDuration: 2000 // 2 seconds
+        };
+        
+        async function getCachedData(endpoint, cacheKey) {
+            const now = Date.now();
+            if (analyticsCache[cacheKey] && (now - analyticsCache.lastFetch) < analyticsCache.cacheDuration) {
+                return analyticsCache[cacheKey];
+            }
+            const data = await fetch(`${API_BASE}${endpoint}`).then(r => r.json()).catch(() => null);
+            if (data) {
+                analyticsCache[cacheKey] = data;
+                analyticsCache.lastFetch = now;
+            }
+            return data;
+        }
+        
         // --- Analytics Data Updates ---
         async function updatePerformanceAnalytics() {
             try {
-                const [stats, health] = await Promise.all([
-                    fetch(`${API_BASE}/stats`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null)
+                const [stats, health, liveStatus] = await Promise.all([
+                    getCachedData('/stats', 'stats'),
+                    getCachedData('/health', 'health'),
+                    getCachedData('/live/status', 'liveStatus')
                 ]);
                 
                 const perfDiv = document.querySelector('#ana-perf .data-card .card-body');
@@ -768,6 +792,74 @@
                 const maxDrawdown = stats.max_drawdown_pct || 0;
                 const winRate = stats.win_rate || 0;
                 const totalTrades = stats.total_trades || 0;
+                
+                // Get equity curve for sparkline
+                let equitySparkline = '';
+                try {
+                    const equityData = await fetch(`${API_BASE}/visualizations/equity-curve-data`).then(r => r.json()).catch(() => null);
+                    if (equityData && equityData.equity_curve && equityData.equity_curve.length > 0) {
+                        const curve = equityData.equity_curve;
+                        const initial = equityData.initial_capital || 100000;
+                        const current = curve[curve.length - 1] || initial;
+                        const change = ((current - initial) / initial) * 100;
+                        
+                        // Generate simple ASCII sparkline
+                        const maxVal = Math.max(...curve);
+                        const minVal = Math.min(...curve);
+                        const range = maxVal - minVal || 1;
+                        const sparkline = curve.slice(-20).map(v => {
+                            const normalized = ((v - minVal) / range) * 4;
+                            return Math.round(normalized);
+                        });
+                        const sparklineChars = sparkline.map(h => {
+                            if (h === 0) return '▁';
+                            if (h === 1) return '▂';
+                            if (h === 2) return '▃';
+                            if (h === 3) return '▅';
+                            return '▇';
+                        }).join('');
+                        
+                        equitySparkline = `
+                            <div style="margin-top: 12px; padding: 12px; background: #111827; border-radius: 6px; border-left: 3px solid ${change >= 0 ? '#10b981' : '#ef4444'};">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <div>
+                                        <div style="font-size: 11px; color: var(--text-secondary);">Equity</div>
+                                        <div style="font-size: 18px; font-weight: 700; color: ${change >= 0 ? '#10b981' : '#ef4444'};">
+                                            $${current.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                            <span style="font-size: 12px; margin-left: 4px;">(${change >= 0 ? '+' : ''}${change.toFixed(2)}%)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="font-family: monospace; font-size: 14px; color: ${change >= 0 ? '#10b981' : '#ef4444'}; letter-spacing: 2px;">
+                                    ${sparklineChars}
+                                </div>
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.debug('Could not load equity curve for sparkline:', e);
+                }
+                
+                // Get simulation start time
+                let startTimeInfo = '';
+                if (liveStatus && liveStatus.start_time) {
+                    const startDate = new Date(liveStatus.start_time);
+                    const startTimeFormatted = startDate.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    }) + ' CST';
+                    const barsProcessed = liveStatus.bar_count || 0;
+                    startTimeInfo = `
+                        <div style="margin-top: 12px; padding: 8px; background: #1f2937; border-radius: 4px; font-size: 11px; color: var(--text-secondary);">
+                            <i class="fas fa-clock" style="margin-right: 4px;"></i>
+                            Since ${liveStatus.mode === 'offline' ? 'Simulation' : 'Live Trading'} Start: ${startTimeFormatted} | Bars: ${barsProcessed}
+                        </div>
+                    `;
+                }
                 
                 perfDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
@@ -796,6 +888,8 @@
                             <div style="font-size: 14px; font-weight: 600; color: ${health?.is_running ? '#10b981' : '#ef4444'};">${health?.is_running ? 'Running' : 'Stopped'}</div>
                         </div>
                     </div>
+                    ${equitySparkline}
+                    ${startTimeInfo}
                 `;
             } catch (e) {
                 console.error('Error updating performance analytics:', e);
@@ -805,8 +899,8 @@
         async function updateRegimeAnalytics() {
             try {
                 const [regime, health] = await Promise.all([
-                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null)
+                    getCachedData('/regime', 'regime'),
+                    getCachedData('/health', 'health')
                 ]);
                 
                 const regimeDiv = document.querySelector('#ana-regime .card-body');
@@ -823,23 +917,58 @@
                 const bias = regime.bias || 'N/A';
                 const confidence = (regime.confidence || 0) * 100;
                 
+                // Regime badge colors
+                const regimeColors = {
+                    'TREND': '#3b82f6',
+                    'COMPRESSION': '#9ca3af',
+                    'EXPANSION': '#f59e0b',
+                    'MEAN_REVERSION': '#8b5cf6',
+                    'NEUTRAL': '#6b7280'
+                };
+                
+                const trendColors = {
+                    'UP': '#10b981',
+                    'DOWN': '#ef4444',
+                    'SIDEWAYS': '#9ca3af'
+                };
+                
+                const volColors = {
+                    'HIGH': '#ef4444',
+                    'MEDIUM': '#f59e0b',
+                    'LOW': '#10b981'
+                };
+                
+                const biasColors = {
+                    'BULLISH': '#10b981',
+                    'BEARISH': '#ef4444',
+                    'NEUTRAL': '#9ca3af'
+                };
+                
                 regimeDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #8b5cf6;">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${regimeColors[regimeType] || '#8b5cf6'};">
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Current Regime</div>
-                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${regimeType}</div>
+                            <div style="display: inline-block; padding: 4px 8px; background: ${regimeColors[regimeType] || '#8b5cf6'}20; border-radius: 4px; margin-bottom: 4px;">
+                                <span style="font-size: 12px; font-weight: 700; color: ${regimeColors[regimeType] || '#8b5cf6'}; text-transform: uppercase;">${regimeType}</span>
+                            </div>
                         </div>
-                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #3b82f6;">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${trendColors[trend] || '#3b82f6'};">
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Trend Direction</div>
-                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${trend}</div>
+                            <div style="display: inline-block; padding: 4px 8px; background: ${trendColors[trend] || '#3b82f6'}20; border-radius: 4px; margin-bottom: 4px;">
+                                <span style="font-size: 12px; font-weight: 700; color: ${trendColors[trend] || '#3b82f6'}; text-transform: uppercase;">${trend}</span>
+                            </div>
                         </div>
-                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${volColors[volatility] || '#f59e0b'};">
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Volatility Level</div>
-                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${volatility}</div>
+                            <div style="display: inline-block; padding: 4px 8px; background: ${volColors[volatility] || '#f59e0b'}20; border-radius: 4px; margin-bottom: 4px;">
+                                <span style="font-size: 12px; font-weight: 700; color: ${volColors[volatility] || '#f59e0b'}; text-transform: uppercase;">VOL ${volatility}</span>
+                            </div>
                         </div>
-                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${bias === 'BULLISH' ? '#10b981' : bias === 'BEARISH' ? '#ef4444' : '#9ca3af'};">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${biasColors[bias] || '#9ca3af'};">
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Bias</div>
-                            <div style="font-size: 20px; font-weight: 700; color: ${bias === 'BULLISH' ? '#10b981' : bias === 'BEARISH' ? '#ef4444' : '#9ca3af'}; text-transform: capitalize;">${bias}</div>
+                            <div style="display: inline-block; padding: 4px 8px; background: ${biasColors[bias] || '#9ca3af'}20; border-radius: 4px; margin-bottom: 4px;">
+                                <span style="font-size: 12px; font-weight: 700; color: ${biasColors[bias] || '#9ca3af'}; text-transform: capitalize;">${bias}</span>
+                            </div>
                         </div>
                         <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #10b981;">
                             <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Confidence</div>
@@ -859,9 +988,9 @@
         async function updateVolatilityAnalytics() {
             try {
                 const [regime, stats, liveStatus] = await Promise.all([
-                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/stats`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => null)
+                    getCachedData('/regime', 'regime'),
+                    getCachedData('/stats', 'stats'),
+                    getCachedData('/live/status', 'liveStatus')
                 ]);
                 
                 const volDiv = document.querySelector('#ana-vol .card-body');
