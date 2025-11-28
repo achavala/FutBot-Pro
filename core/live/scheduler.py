@@ -448,6 +448,63 @@ class LiveTradingLoop:
         """Process a single bar through the full pipeline."""
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
+        
+        # ULTRA FORCE: In testing_mode, execute a trade immediately every 10 bars
+        if self.config.testing_mode and self.bar_count % 10 == 0:
+            logger.info(f"🔥 [ULTRA FORCE] Bar #{self.bar_count} - FORCING TRADE EXECUTION NOW!")
+            try:
+                from core.policy.types import FinalTradeIntent
+                from core.regime.types import RegimeSignal, RegimeType, TrendDirection, VolatilityLevel, Bias
+                from datetime import datetime, timezone
+                
+                # Get current price
+                current_price = bar.close
+                
+                # Create a forced trade intent
+                forced_intent = FinalTradeIntent(
+                    position_delta=0.1,  # Force buy
+                    confidence=0.1,
+                    primary_agent="trend_agent",
+                    contributing_agents=["trend_agent"],
+                    reason="ULTRA FORCE: Immediate trade execution",
+                    is_valid=True,
+                )
+                
+                # Get current position
+                positions = self.executor.broker_client.get_positions(symbol)
+                current_position = positions[0].quantity if positions else 0.0
+                
+                # Execute the trade directly
+                logger.info(f"🔥 [ULTRA FORCE] Executing forced trade: {symbol}, Price: ${current_price:.2f}, Position: {current_position}")
+                result = self.executor.apply_intent(
+                    forced_intent,
+                    symbol,
+                    current_price,
+                    current_position,
+                    risk_constraints={}
+                )
+                
+                if result.success:
+                    logger.info(f"✅ [ULTRA FORCE] Trade executed successfully! Order ID: {result.order.order_id if result.order else 'N/A'}")
+                    # Update portfolio
+                    if result.position_delta_applied > 0:
+                        trade = self.portfolio.open_position(
+                            symbol,
+                            current_price,
+                            result.position_delta_applied,
+                            bar.timestamp,
+                            "ULTRA FORCE",
+                            "trend_agent"
+                        )
+                        if trade:
+                            logger.info(f"✅ [ULTRA FORCE] Position opened: {symbol}, Quantity: {result.position_delta_applied}, Price: ${current_price:.2f}")
+                else:
+                    logger.error(f"❌ [ULTRA FORCE] Trade execution failed: {result.reason}")
+            except Exception as e:
+                logger.error(f"❌ [ULTRA FORCE] Exception during forced trade: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+        
         if self.bar_count % 10 == 0:
             logger.info(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
 
