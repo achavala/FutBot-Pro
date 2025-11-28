@@ -969,6 +969,14 @@
                                 <div style="margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
                                     Bars: ${Object.entries(liveStatus.bars_per_symbol).map(([s, c]) => `${s}: ${c}`).join(', ')}
                                 </div>
+                                ${Object.values(liveStatus.bars_per_symbol || {}).some(c => c < 30) ? `
+                                <div style="margin-top: 6px; padding: 6px; background: #7c2d12; border-radius: 4px; border-left: 2px solid #ef4444;">
+                                    <div style="font-size: 10px; color: #fca5a5;">
+                                        <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
+                                        <strong>Warning:</strong> Bar count stuck. Check data feed connection (Alpaca/IBKR). Market shows SPY: 681, QQQ: 616 but bot has only ${Object.values(liveStatus.bars_per_symbol || {}).join('/')} bars.
+                                    </div>
+                                </div>
+                                ` : ''}
                                 ` : ''}
                             </div>
                             ${diagnosticInfo ? diagnosticInfo : ''}
