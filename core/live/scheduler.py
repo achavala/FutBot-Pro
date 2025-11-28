@@ -41,6 +41,8 @@ class LiveTradingConfig:
     asset_profiles: Optional[dict[str, "AssetProfile"]] = None  # Asset profiles per symbol
     offline_mode: bool = False  # Explicit offline/cached mode flag
     replay_speed_multiplier: float = 600.0  # Replay speed: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
+    testing_mode: bool = False  # Force trading mode - allows trading with minimal bars
+    minimum_bars_required: int = 10  # Minimum bars for analysis (10 for relaxed, 1 for testing_mode)
 
 
 class LiveTradingLoop:
@@ -428,8 +430,9 @@ class LiveTradingLoop:
 
         # Always call callback to update BotManager state, even if we don't have enough bars yet
         # If we don't have enough bars, still update regime with "waiting" state
-        # Lowered threshold to 15 bars to allow earlier trading (was 30, then 50)
-        if len(bars_df) < 15:  # Need enough history for features (lowered from 30 to 15 for aggressive trading)
+        # FORCE MODE: Use testing_mode to allow trading with minimal bars
+        min_bars = 1 if self.config.testing_mode else self.config.minimum_bars_required
+        if len(bars_df) < min_bars:  # Need enough history for features
             if self.on_bar_callback:
                 # Create a "waiting" regime signal to show progress
                 from core.regime.types import RegimeSignal, RegimeType, TrendDirection, VolatilityLevel, Bias
@@ -441,7 +444,7 @@ class LiveTradingLoop:
                     bias=Bias.NEUTRAL,
                     confidence=0.0,
                     active_fvg=None,
-                    metrics={"bar_count": len(bars_df), "required_bars": 15},
+                    metrics={"bar_count": len(bars_df), "required_bars": min_bars},
                     is_valid=False,
                 )
                 # Create a no-op intent
@@ -525,7 +528,7 @@ class LiveTradingLoop:
         
         # If regime is invalid but we have enough bars, try to force valid
         # This helps when features have NaN values that are being handled
-        if not signal.is_valid and len(bars_df) >= 15:
+        if not signal.is_valid and len(bars_df) >= min_bars:
             # Re-check with filled NaN values
             adx_val = latest.get("adx", 20.0)
             slope_val = latest.get("slope", 0.0)

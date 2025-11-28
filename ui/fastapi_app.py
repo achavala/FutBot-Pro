@@ -627,6 +627,7 @@ class LiveStartRequest(BaseModel):
     start_time: Optional[str] = None  # Start datetime (YYYY-MM-DDTHH:MM:SS) for time-windowed simulation
     end_time: Optional[str] = None  # End datetime (YYYY-MM-DDTHH:MM:SS) for time-windowed simulation
     replay_speed: Optional[float] = 600.0  # Replay speed multiplier: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
+    testing_mode: bool = False  # Force trading mode - allows trading with minimal bars (1 bar minimum)
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
@@ -906,6 +907,9 @@ async def start_live_trading(request: LiveStartRequest):
     logger.info(f"🔵 Starting live trading with broker_client={type(broker_client).__name__}, data_feed={type(data_feed).__name__}")
     try:
         from core.live import LiveTradingConfig
+        # Set minimum bars based on testing_mode
+        min_bars = 1 if request.testing_mode else 10  # 1 bar for testing, 10 for relaxed mode
+        
         live_config = LiveTradingConfig(
             symbols=request.symbols,
             fixed_investment_amount=request.fixed_investment_amount,
@@ -913,7 +917,10 @@ async def start_live_trading(request: LiveStartRequest):
             asset_profiles=asset_profiles,
             offline_mode=request.offline_mode or request.broker_type == "cached",
             replay_speed_multiplier=request.replay_speed or 600.0,  # Use provided speed or default 600x
+            testing_mode=request.testing_mode,  # Force trading mode
+            minimum_bars_required=min_bars,  # 1 for testing, 10 for relaxed
         )
+        logger.info(f"🔵 Testing mode: {live_config.testing_mode}, Minimum bars: {live_config.minimum_bars_required}")
         logger.info(f"🔵 Replay speed: {live_config.replay_speed_multiplier}x")
         logger.info(f"🔵 LiveTradingConfig created, calling bot_manager.start_live_trading()...")
         bot_manager.start_live_trading(
