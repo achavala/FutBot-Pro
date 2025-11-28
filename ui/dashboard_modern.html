@@ -1980,8 +1980,22 @@
                 if(trades.trades && trades.trades.length > 0) {
                     trades.trades.slice(0,5).forEach(t => {
                         const tr = document.createElement('tr');
+                        // Format timestamp with date and time in CST
+                        let timeStr = '-';
+                        if (t.entry_time) {
+                            const entryDate = new Date(t.entry_time);
+                            timeStr = entryDate.toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: true,
+                                timeZone: 'America/Chicago' // CST
+                            });
+                        }
                         tr.innerHTML = `
-                            <td>${new Date(t.entry_time).toLocaleTimeString()}</td>
+                            <td>${timeStr}</td>
                             <td style="font-weight:600">${t.symbol}</td>
                             <td>${t.quantity>0?'BUY':'SELL'}</td>
                             <td>${Math.abs(t.quantity)}</td>
