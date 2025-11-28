@@ -456,7 +456,7 @@
                     <option value="100">100x</option>
                     <option value="600" selected>600x (Fast)</option>
                 </select>
-                <button class="ctrl-btn btn-start" id="btnStart" onclick="controlBot('start')"><i class="fas fa-play"></i> Start Live</button>
+                <button class="ctrl-btn btn-start" id="btnStart" onclick="controlBot('start')" style="display: none;"><i class="fas fa-play"></i> Start Live</button>
                 <button class="ctrl-btn btn-sim" id="btnSim" onclick="startSimulation()" style="background:#3b82f6; color:white;"><i class="fas fa-flask"></i> Simulate</button>
                 <button class="ctrl-btn btn-pause" id="btnPause" onclick="controlBot('pause')"><i class="fas fa-pause"></i> Pause</button>
                 <button class="ctrl-btn btn-stop" id="btnStop" onclick="controlBot('stop')"><i class="fas fa-stop"></i> Stop</button>
@@ -1920,12 +1920,23 @@
         // --- Data Fetching & UI Updates ---
         async function updateData() {
             try {
-                const [health, stats, regime, trades] = await Promise.all([
+                const [health, stats, regime, trades, marketStatus] = await Promise.all([
                     fetch(`${API_BASE}/health`).then(r => r.json()),
                     fetch(`${API_BASE}/stats`).then(r => r.json()),
                     fetch(`${API_BASE}/regime`).then(r => r.json()),
-                    fetch(`${API_BASE}/trade-log?limit=10`).then(r => r.json())
+                    fetch(`${API_BASE}/trade-log?limit=10`).then(r => r.json()),
+                    fetch(`${API_BASE}/market/status`).then(r => r.json()).catch(() => ({ is_open: false }))
                 ]);
+                
+                // Show/hide Start Live button based on market hours
+                const btnStart = document.getElementById('btnStart');
+                if (btnStart) {
+                    if (marketStatus.is_open) {
+                        btnStart.style.display = 'inline-block'; // Show during trading hours
+                    } else {
+                        btnStart.style.display = 'none'; // Hide during non-trading hours
+                    }
+                }
 
                 // 1. Header Status
                 const dot = document.getElementById('statusDot');
