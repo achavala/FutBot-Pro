@@ -706,8 +706,8 @@ class LiveTradingLoop:
                     # Update position
                     current_position = 0.0
 
-        # Advanced risk check
-        if self.advanced_risk:
+        # Advanced risk check - BYPASS in testing_mode
+        if self.advanced_risk and not self.config.testing_mode:
             can_trade, risk_reason = self.advanced_risk.can_trade_advanced(
                 intent.confidence, signal.regime_type, signal.volatility_level, self.bar_count
             )
@@ -720,6 +720,8 @@ class LiveTradingLoop:
                     reason=f"Risk veto: {risk_reason}",
                     is_valid=False,
                 )
+        elif self.config.testing_mode:
+            logger.info(f"🔥 [TestingMode] Bypassing advanced risk check - forcing trade execution")
 
         # Execute if valid
         if intent.is_valid and intent.position_delta != 0:

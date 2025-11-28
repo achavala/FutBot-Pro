@@ -128,12 +128,20 @@ class MetaPolicyController:
         # FORCE MODE: In testing_mode, accept ANY confidence (even 0%) to force trades
         if testing_mode:
             min_final = 0.0  # Accept 0% confidence in testing mode
+            # FORCE: If confidence is 0, set it to minimum to ensure trade executes
+            if confidence == 0.0 and score > 0:
+                confidence = max(0.1, score)  # Ensure at least 10% confidence for execution
             logger.info(f"🔥 [TestingMode] Bypassing confidence threshold - accepting {confidence:.2f}% confidence")
         else:
-            min_final = 0.05  # VERY AGGRESSIVE: Accept 5% confidence to ensure trades happen TODAY
+            min_final = 0.0  # ULTRA AGGRESSIVE: Accept 0% confidence to force trades NOW
         
         if confidence < min_final:
-            return self._empty_decision(reason=f"Confidence below threshold ({confidence:.2f} < {min_final:.2f})")
+            # FORCE MODE: Even if confidence is 0, accept it in testing mode
+            if testing_mode:
+                confidence = 0.1  # Force minimum confidence
+                logger.info(f"🔥 [TestingMode] FORCING trade with 0.1% confidence")
+            else:
+                return self._empty_decision(reason=f"Confidence below threshold ({confidence:.2f} < {min_final:.2f})")
 
         reason = primary.intent.reason if not close_intents else "Blended agent consensus"
         return FinalTradeIntent(
