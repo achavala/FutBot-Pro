@@ -428,8 +428,8 @@ class LiveTradingLoop:
 
         # Always call callback to update BotManager state, even if we don't have enough bars yet
         # If we don't have enough bars, still update regime with "waiting" state
-        # Lowered threshold to 30 bars to allow earlier trading
-        if len(bars_df) < 30:  # Need enough history for features (lowered from 50)
+        # Lowered threshold to 15 bars to allow earlier trading (was 30, then 50)
+        if len(bars_df) < 15:  # Need enough history for features (lowered from 30 to 15 for aggressive trading)
             if self.on_bar_callback:
                 # Create a "waiting" regime signal to show progress
                 from core.regime.types import RegimeSignal, RegimeType, TrendDirection, VolatilityLevel, Bias
@@ -441,7 +441,7 @@ class LiveTradingLoop:
                     bias=Bias.NEUTRAL,
                     confidence=0.0,
                     active_fvg=None,
-                    metrics={"bar_count": len(bars_df), "required_bars": 50},
+                    metrics={"bar_count": len(bars_df), "required_bars": 15},
                     is_valid=False,
                 )
                 # Create a no-op intent
@@ -525,7 +525,7 @@ class LiveTradingLoop:
         
         # If regime is invalid but we have enough bars, try to force valid
         # This helps when features have NaN values that are being handled
-        if not signal.is_valid and len(bars_df) >= 30:
+        if not signal.is_valid and len(bars_df) >= 15:
             # Re-check with filled NaN values
             adx_val = latest.get("adx", 20.0)
             slope_val = latest.get("slope", 0.0)

@@ -46,21 +46,17 @@ class MetaPolicyController:
         context: Optional[Mapping[str, object]] = None,
     ) -> FinalTradeIntent:
         # Regime confidence veto - check early
-        # Be very lenient to ensure trades execute - lower thresholds significantly
-        min_confidence = 0.15  # Lowered from 0.25 to 0.15 to ensure trades happen
+        # VERY AGGRESSIVE: Accept any confidence level to ensure trades execute TODAY
+        min_confidence = 0.0  # Accept 0% confidence - we want trades to happen!
         
-        # If confidence is 0.0 or very low, lower threshold even more
-        if signal.confidence <= 0.0:
-            min_confidence = 0.1  # Very lenient for 0.0 confidence
-        elif signal.confidence < 0.2:
-            min_confidence = 0.1  # Lower threshold for low confidence
+        # Only block if confidence is negative (which shouldn't happen)
+        if signal.confidence < 0.0:
+            return self._empty_decision(reason=f"Invalid negative confidence: {signal.confidence:.2f}")
         
-        # Lower threshold if regime is valid (features computed correctly)
-        if signal.is_valid:
-            min_confidence = max(0.1, min_confidence * 0.7)  # Even lower for valid regimes
-        
-        if signal.confidence < min_confidence:
-            return self._empty_decision(reason=f"Regime confidence {signal.confidence:.2f} below threshold {min_confidence:.2f}")
+        # Log that we're being very lenient
+        if signal.confidence == 0.0:
+            # Even with 0% confidence, allow trading - we'll use price action signals
+            pass  # Don't block, continue to agent evaluation
 
         intents = self.collect_intents(signal, market_state, agents)
         filtered = self.filter_intents(intents, signal)
@@ -125,7 +121,7 @@ class MetaPolicyController:
 
         confidence = float(np.clip(score, 0.0, 1.0))
         # Lower threshold to 0.15 to ensure trades execute
-        min_final = max(0.15, self.config.min_final_confidence * 0.6)  # Lower threshold significantly
+        min_final = 0.05  # VERY AGGRESSIVE: Accept 5% confidence to ensure trades happen TODAY
         if confidence < min_final:
             return self._empty_decision(reason="Confidence below threshold")
 

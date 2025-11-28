@@ -1112,40 +1112,13 @@
                     document.getElementById('currentRegime').style.color = regime.confidence > 0.7 ? '#10b981' : '#f59e0b';
                 }
                 
-                // Update Last Bar Timestamp (show current time if bars are stuck or no last_bar_time)
+                // Update Last Bar Timestamp - ALWAYS show current CST time when bot is running
                 const currentTimeForDisplay = new Date();
                 let timeToShow = null;
                 
-                if (liveStatus && liveStatus.last_bar_time) {
-                    const lastBarDate = new Date(liveStatus.last_bar_time);
-                    const timeDiff = (currentTimeForDisplay - lastBarDate) / 1000 / 60; // minutes ago
-                    
-                    // If last bar is more than 5 minutes old and bot is running, show current time
-                    if (liveStatus.is_running && timeDiff > 5) {
-                        // Bars are stuck - show current time with "Live" indicator
-                        timeToShow = currentTimeForDisplay.toLocaleString('en-US', {
-                            timeZone: 'America/Chicago',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            hour12: true
-                        }) + ' CST (Live - Waiting for bars)';
-                    } else {
-                        // Show last bar time
-                        timeToShow = lastBarDate.toLocaleString('en-US', {
-                            timeZone: 'America/Chicago',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            hour12: true
-                        }) + ' CST';
-                    }
-                } else if (liveStatus && liveStatus.is_running) {
-                    // Bot is running but no last_bar_time - show current time
+                // FIX: Always show current time when bot is running (fixes timestamp issue)
+                if (liveStatus && liveStatus.is_running) {
+                    // Always show current CST time when bot is running
                     timeToShow = currentTimeForDisplay.toLocaleString('en-US', {
                         timeZone: 'America/Chicago',
                         month: 'short',
@@ -1154,7 +1127,28 @@
                         minute: '2-digit',
                         second: '2-digit',
                         hour12: true
-                    }) + ' CST (Live)';
+                    }) + ' CST';
+                    
+                    // Add note if bars are stuck
+                    if (liveStatus.last_bar_time) {
+                        const lastBarDate = new Date(liveStatus.last_bar_time);
+                        const timeDiff = (currentTimeForDisplay - lastBarDate) / 1000 / 60; // minutes ago
+                        if (timeDiff > 5) {
+                            timeToShow += ' (Waiting for new bars)';
+                        }
+                    }
+                } else if (liveStatus && liveStatus.last_bar_time) {
+                    // Bot not running - show last bar time
+                    const lastBarDate = new Date(liveStatus.last_bar_time);
+                    timeToShow = lastBarDate.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                    }) + ' CST';
                 } else if (health && health.last_update) {
                     const lastUpdate = new Date(health.last_update);
                     timeToShow = lastUpdate.toLocaleString('en-US', {
