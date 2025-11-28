@@ -16,11 +16,14 @@ class FilterConfig:
     blend_conflict_threshold: float = 0.05
 
 
-def apply_filters(intents: Sequence[TradeIntent], signal: RegimeSignal, config: FilterConfig | None = None) -> List[TradeIntent]:
+def apply_filters(intents: Sequence[TradeIntent], signal: RegimeSignal, config: FilterConfig | None = None, testing_mode: bool = False) -> List[TradeIntent]:
     cfg = config or FilterConfig()
-    step = _confidence_filter(intents, cfg.min_confidence)
-    step = _regime_filter(step, signal)
-    step = _volatility_filter(step, signal, cfg)
+    # In testing_mode, bypass confidence filter to allow 0% confidence intents
+    min_confidence = 0.0 if testing_mode else cfg.min_confidence
+    step = _confidence_filter(intents, min_confidence)
+    # In testing_mode, bypass regime filter to allow COMPRESSION regime
+    step = _regime_filter(step, signal, testing_mode=testing_mode)
+    step = _volatility_filter(step, signal, cfg, testing_mode=testing_mode)
     step = _direction_conflict_filter(step)
     return step
 
@@ -29,9 +32,13 @@ def _confidence_filter(intents: Sequence[TradeIntent], min_confidence: float) ->
     return [intent for intent in intents if intent.confidence >= min_confidence]
 
 
-def _regime_filter(intents: Sequence[TradeIntent], signal: RegimeSignal) -> List[TradeIntent]:
+def _regime_filter(intents: Sequence[TradeIntent], signal: RegimeSignal, testing_mode: bool = False) -> List[TradeIntent]:
     if not intents:
         return []
+    
+    # In testing_mode, bypass all regime filters to allow trades in any regime (including COMPRESSION)
+    if testing_mode:
+        return list(intents)
 
     results: List[TradeIntent] = []
     for intent in intents:
@@ -46,9 +53,12 @@ def _regime_filter(intents: Sequence[TradeIntent], signal: RegimeSignal) -> List
     return results
 
 
-def _volatility_filter(intents: Sequence[TradeIntent], signal: RegimeSignal, cfg: FilterConfig) -> List[TradeIntent]:
+def _volatility_filter(intents: Sequence[TradeIntent], signal: RegimeSignal, cfg: FilterConfig, testing_mode: bool = False) -> List[TradeIntent]:
     if not intents:
         return []
+    # In testing_mode, bypass volatility filters
+    if testing_mode:
+        return list(intents)
     kept: List[TradeIntent] = []
     for intent in intents:
         if signal.volatility_level == VolatilityLevel.HIGH and "mean_reversion" in intent.agent_name:

@@ -638,7 +638,9 @@ class LiveTradingLoop:
                     options_agent.volatility_agent_signal = vol_intent
         
         # Get trade decision (includes options agent now)
-        intent = self.controller.decide(signal, market_state, self.agents)
+        # Pass testing_mode in context so controller can bypass restrictions
+        context = {"testing_mode": self.config.testing_mode}
+        intent = self.controller.decide(signal, market_state, self.agents, context=context)
         
         # Diagnostic logging for trade execution
         logger.info(f"🔍 [TradeDiagnostic] Symbol: {symbol}, Bar: {self.bar_count}")
