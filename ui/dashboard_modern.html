@@ -794,26 +794,31 @@
                     document.getElementById('currentRegime').style.color = regime.confidence > 0.7 ? '#10b981' : '#f59e0b';
                 }
                 
-                // Update Last Bar Timestamp
+                // Update Last Bar Timestamp (CST timezone)
                 if (liveStatus && liveStatus.last_bar_time) {
                     const lastBarDate = new Date(liveStatus.last_bar_time);
+                    // Convert to CST (America/Chicago timezone)
                     const formattedTime = lastBarDate.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
                         month: 'short',
                         day: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
+                        second: '2-digit',
                         hour12: true
-                    });
+                    }) + ' CST';
                     document.getElementById('lastBarTime').textContent = formattedTime;
                 } else if (health && health.last_update) {
                     const lastUpdate = new Date(health.last_update);
                     const formattedTime = lastUpdate.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
                         month: 'short',
                         day: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
+                        second: '2-digit',
                         hour12: true
-                    });
+                    }) + ' CST';
                     document.getElementById('lastBarTime').textContent = formattedTime;
                 }
 
@@ -840,17 +845,18 @@
             const requiredBars = 30;
             const barsNeeded = Math.max(0, requiredBars - barCount);
 
-            // Get current evaluation time/bar
+            // Get current evaluation time/bar (CST timezone)
             const currentBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
             const currentBarTimeFormatted = currentBarTime 
                 ? new Date(currentBarTime).toLocaleString('en-US', {
+                    timeZone: 'America/Chicago',
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                     hour12: true
-                  })
+                  }) + ' CST'
                 : 'N/A';
             
             // If we have enough bars, treat regime as valid even if is_valid is false
@@ -1020,17 +1026,18 @@
             // If we have valid regime, status is READY (green)
             const readyStatusColor = '#10b981';
 
-            // Get current evaluation time
+            // Get current evaluation time (CST timezone)
             const evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
             const evalTimeFormatted = evalBarTime 
                 ? new Date(evalBarTime).toLocaleString('en-US', {
+                    timeZone: 'America/Chicago',
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                     hour12: true
-                  })
+                  }) + ' CST'
                 : 'N/A';
             
             setupsDiv.innerHTML = `
@@ -1059,6 +1066,20 @@
                         </div>
                         <div style="margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
                             Bar #${liveStatus?.bar_count || 'N/A'} | ${liveStatus?.bars_per_symbol ? Object.entries(liveStatus.bars_per_symbol).map(([s, c]) => `${s}: ${c}`).join(', ') : ''}
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; padding: 8px; background: #1e3a5f; border-radius: 4px; border-left: 2px solid #3b82f6;">
+                        <div style="font-size: 11px; font-weight: 600; color: #93c5fd; margin-bottom: 6px;">
+                            <i class="fas fa-info-circle" style="margin-right: 4px;"></i>Trade Setup Criteria:
+                        </div>
+                        <div style="font-size: 10px; color: #bfdbfe; line-height: 1.6;">
+                            <div><strong>GOOD SETUP:</strong> Confidence ≥70%, Bias (BULLISH/BEARISH), Regime (TREND/EXPANSION)</div>
+                            <div><strong>CAUTION:</strong> Confidence 40-70%, Moderate signals</div>
+                            <div><strong>AVOID:</strong> Confidence &lt;40% or COMPRESSION regime</div>
+                            <div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #3b82f6;">
+                                <strong>Profit Target:</strong> 15% | <strong>Stop Loss:</strong> 10%
+                            </div>
+                            <div><strong>Min Confidence:</strong> 15% (lowered for active trading)</div>
                         </div>
                     </div>
                 </div>
