@@ -1723,26 +1723,42 @@
             const defaultEndValue = `${defaultEndDateStr}T16:00:00`;
             
             // Set defaults
-            startDateTimeSelect.value = defaultStartValue;
-            endDateTimeSelect.value = defaultEndValue;
-            
-            console.log('Combined Date/Time dropdowns initialized');
+            if (dateTimeOptions.length > 0) {
+                startDateTimeSelect.value = defaultStartValue;
+                endDateTimeSelect.value = defaultEndValue;
+                console.log(`✅ Combined Date/Time dropdowns initialized with ${dateTimeOptions.length} options`);
+                console.log(`   Start default: ${defaultStartValue}`);
+                console.log(`   End default: ${defaultEndValue}`);
+            } else {
+                console.error('❌ No date/time options generated!');
+            }
         }
         
         // Initialize on page load - ensure it runs
         function initializeOnLoad() {
-            initDateTimeDropdowns();
+            console.log('🔄 Attempting to initialize dropdowns...');
+            try {
+                initDateTimeDropdowns();
+            } catch (e) {
+                console.error('❌ Error initializing dropdowns:', e);
+            }
         }
         
         // Multiple initialization strategies to ensure it runs
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeOnLoad);
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('📄 DOMContentLoaded event fired');
+                initializeOnLoad();
+            });
         } else {
+            console.log('📄 Document already loaded, initializing immediately');
             initializeOnLoad();
         }
         
-        // Also try after a short delay in case elements aren't ready
+        // Also try after delays in case elements aren't ready
         setTimeout(initializeOnLoad, 500);
+        setTimeout(initializeOnLoad, 1000);
+        setTimeout(initializeOnLoad, 2000);
 
         // --- Auto-Start Historical Simulation ---
         async function autoStartHistoricalSimulation() {
