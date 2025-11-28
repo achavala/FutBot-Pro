@@ -477,6 +477,12 @@
                     <option value="100">100x</option>
                     <option value="600" selected>600x (Fast)</option>
                 </select>
+                <button onclick="if(window.initDateTimeDropdowns) { window.initDateTimeDropdowns(); console.log('🔄 Manual refresh triggered'); } else { console.error('initDateTimeDropdowns not available yet'); }" 
+                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
+                               background: var(--nav-accent); color: white; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                        title="Refresh date dropdowns">
+                    <i class="fas fa-sync-alt"></i> Refresh Dates
+                </button>
                 <button class="ctrl-btn btn-start" id="btnStart" onclick="controlBot('start')" style="display: none;"><i class="fas fa-play"></i> Start Live</button>
                 <button class="ctrl-btn btn-sim" id="btnSim" onclick="startSimulation()" style="background:#3b82f6; color:white;"><i class="fas fa-flask"></i> Simulate</button>
                 <button class="ctrl-btn btn-pause" id="btnPause" onclick="controlBot('pause')"><i class="fas fa-pause"></i> Pause</button>
