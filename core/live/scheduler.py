@@ -531,17 +531,25 @@ class LiveTradingLoop:
         fvgs = detect_fvgs(bars_df.tail(50))
 
         # Build market state
+        # Include previous close for momentum signals
+        prev_close = bars_df.iloc[-2]["close"] if len(bars_df) > 1 else latest["close"]
+        ema9_val = latest.get("ema9", latest["close"])
         market_state = {
             "close": latest["close"],
+            "price": latest["close"],  # Alias for compatibility
             "open": latest["open"],
             "high": latest["high"],
             "low": latest["low"],
             "volume": latest["volume"],
-            "ema9": latest.get("ema9", latest["close"]),
+            "ema9": ema9_val,
+            "ema_9": ema9_val,  # Alias for compatibility
+            "ema21": latest.get("ema21", ema9_val),  # Compute EMA21 if available
+            "ema_21": latest.get("ema21", ema9_val),  # Alias
             "rsi": latest.get("rsi", 50.0),
             "atr": latest.get("atr", 0.0),
             "vwap": latest.get("vwap", latest["close"]),
             "vwap_deviation": latest.get("vwap_deviation", 0.0),
+            "prev_close": prev_close,  # For momentum signals
         }
 
         # Get asset type for this symbol (if available from asset profiles)
