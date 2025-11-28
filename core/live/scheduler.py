@@ -225,8 +225,8 @@ class LiveTradingLoop:
             logger.info(f"🔵 [LiveLoop] OFFLINE MODE ENABLED")
             logger.info(f"🔵 [LiveLoop] Replay speed: {self.config.replay_speed_multiplier}x ({sleep_interval:.3f}s per bar)")
             logger.info(f"🔵 [LiveLoop] Processing up to 10 bars per iteration")
-            if self.start_date:
-                logger.info(f"🔵 [LiveLoop] Beginning replay at {self.start_date}")
+            if hasattr(self.data_feed, 'start_date') and self.data_feed.start_date:
+                logger.info(f"🔵 [LiveLoop] Beginning replay at {self.data_feed.start_date}")
         else:
             sleep_interval = self.config.bar_interval_seconds
             logger.info(f"🔵 [LiveLoop] Mode = LIVE (realtime) - Interval: {sleep_interval}s per bar")
