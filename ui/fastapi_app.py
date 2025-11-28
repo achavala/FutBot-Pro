@@ -289,23 +289,41 @@ async def get_service_worker():
 
 
 @app.get("/dashboard")
-async def dashboard():
-    """Serve the dashboard HTML."""
+async def dashboard(v: Optional[str] = None):
+    """Serve the dashboard HTML with cache-busting."""
     from pathlib import Path
+    from datetime import datetime
     # Try modern dashboard first (has latest features), then webull, then fallback
     modern_dashboard = Path(__file__).parent / "dashboard_modern.html"
     webull_dashboard = Path(__file__).parent / "dashboard_webull.html"
     dashboard_path = Path(__file__).parent / "dashboard.html"
     
     # Add cache-busting headers to prevent browser caching
+    # Also add timestamp to force fresh load
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     headers = {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
         "Pragma": "no-cache",
-        "Expires": "0"
+        "Expires": "0",
+        "Last-Modified": datetime.now().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+        "ETag": f'"{timestamp}"'
     }
     
     if modern_dashboard.exists():
         html_content = modern_dashboard.read_text(encoding='utf-8')
+        # Inject cache-busting script if not already present
+        if 'caches.keys()' not in html_content:
+            cache_script = '''<script>
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                for (let name of names) caches.delete(name);
+            });
+        }
+        window.addEventListener('pageshow', function(e) {
+            if (e.persisted) window.location.reload();
+        });
+    </script>'''
+            html_content = html_content.replace('</head>', cache_script + '</head>', 1)
         return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     elif webull_dashboard.exists():
         html_content = webull_dashboard.read_text(encoding='utf-8')
