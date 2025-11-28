@@ -453,8 +453,8 @@ class LiveTradingLoop:
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
         
-        # ULTRA FORCE: In testing_mode, execute a trade immediately every 10 bars
-        if self.config.testing_mode and self.bar_count % 10 == 0:
+        # ULTRA FORCE: In testing_mode, execute a trade immediately on EVERY bar (for immediate execution)
+        if self.config.testing_mode:
             logger.info(f"🔥 [ULTRA FORCE] Bar #{self.bar_count} - FORCING TRADE EXECUTION NOW!")
             try:
                 from core.policy.types import FinalTradeIntent
