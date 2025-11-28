@@ -1639,9 +1639,16 @@
             const endDateTimeSelect = document.getElementById('simEndDateTime');
             
             if (!startDateTimeSelect || !endDateTimeSelect) {
-                console.warn('Date/Time dropdowns not found');
+                console.warn('Date/Time dropdowns not found', {
+                    start: !!startDateTimeSelect,
+                    end: !!endDateTimeSelect
+                });
                 return;
             }
+            
+            // Clear existing options first
+            startDateTimeSelect.innerHTML = '';
+            endDateTimeSelect.innerHTML = '';
             
             // Generate combined date+time options: Last 3 months of weekdays with market hours
             const now = new Date();
