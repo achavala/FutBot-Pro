@@ -847,15 +847,15 @@
 
             // Get current evaluation time/bar (CST timezone)
             // If last_bar_time is old (>5 min) and bot is running, show current time
-            const now = new Date();
+            const currentTime = new Date();
             let currentBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
             
             if (currentBarTime && liveStatus?.is_running) {
                 const lastBarDate = new Date(currentBarTime);
-                const timeDiff = (now - lastBarDate) / 1000 / 60; // minutes ago
+                const timeDiff = (currentTime - lastBarDate) / 1000 / 60; // minutes ago
                 // If last bar is more than 5 minutes old, show current time
                 if (timeDiff > 5) {
-                    currentBarTime = now.toISOString(); // Use current time
+                    currentBarTime = currentTime.toISOString(); // Use current time
                 }
             }
             
@@ -869,7 +869,7 @@
                     second: '2-digit',
                     hour12: true
                   }) + ' CST'
-                : now.toLocaleString('en-US', {
+                : currentTime.toLocaleString('en-US', {
                     timeZone: 'America/Chicago',
                     month: 'short',
                     day: 'numeric',
@@ -1056,15 +1056,15 @@
 
             // Get current evaluation time (CST timezone)
             // If last_bar_time is old (>5 min) and bot is running, show current time
-            const now = new Date();
+            const evalCurrentTime = new Date();
             let evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
             
             if (evalBarTime && liveStatus?.is_running) {
                 const lastBarDate = new Date(evalBarTime);
-                const timeDiff = (now - lastBarDate) / 1000 / 60; // minutes ago
+                const timeDiff = (evalCurrentTime - lastBarDate) / 1000 / 60; // minutes ago
                 // If last bar is more than 5 minutes old, show current time
                 if (timeDiff > 5) {
-                    evalBarTime = now.toISOString(); // Use current time
+                    evalBarTime = evalCurrentTime.toISOString(); // Use current time
                 }
             }
             
@@ -1078,7 +1078,7 @@
                     second: '2-digit',
                     hour12: true
                   }) + ' CST'
-                : now.toLocaleString('en-US', {
+                : evalCurrentTime.toLocaleString('en-US', {
                     timeZone: 'America/Chicago',
                     month: 'short',
                     day: 'numeric',
