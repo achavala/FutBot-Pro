@@ -514,6 +514,7 @@ class LiveTradingLoop:
                             exit_price=current_price,
                             quantity=abs(result.position_delta_applied),
                             pnl=0.0,  # Will be calculated on exit
+                            pnl_pct=0.0,  # Will be calculated on exit
                             reason="ULTRA FORCE",
                             agent="trend_agent"
                         )
