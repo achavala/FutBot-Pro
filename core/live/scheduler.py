@@ -340,10 +340,13 @@ class LiveTradingLoop:
                         # Live mode: process one bar per symbol per iteration
                         bar = self.data_feed.get_next_bar(symbol, timeout=1.0)
                         if bar:
+                            # Update last_bar_time immediately when bar is received
+                            self.last_bar_time = bar.timestamp
                             self._process_bar(symbol, bar)
                             bars_processed += 1
                             self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
                             consecutive_no_bars = 0
+                            logger.debug(f"📊 [LiveLoop] Processed bar for {symbol}: {bar.timestamp}, Total bars: {self.bars_per_symbol[symbol]}")
 
                 # Handle end of data in offline mode
                 if is_offline_mode:
