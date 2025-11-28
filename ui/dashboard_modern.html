@@ -1051,6 +1051,7 @@
         }
 
         function showPerfTab(tabId, el) {
+            console.log('🔄 showPerfTab called with:', tabId);
             // Hide all performance tab contents
             document.querySelectorAll('.perf-tab-content').forEach(div => div.style.display = 'none');
             document.querySelectorAll('.perf-tab').forEach(t => {
@@ -1060,15 +1061,29 @@
             
             // Show selected
             if (tabId === 'chart') {
-                document.getElementById('perf-chart-view').style.display = 'block';
+                const chartView = document.getElementById('perf-chart-view');
+                if (chartView) {
+                    chartView.style.display = 'block';
+                    console.log('✅ Chart view shown');
+                } else {
+                    console.error('❌ perf-chart-view element not found');
+                }
             } else if (tabId === 'status') {
-                document.getElementById('perf-status-view').style.display = 'block';
-                updateStatusView(); // Refresh status when switching to status tab
+                const statusView = document.getElementById('perf-status-view');
+                if (statusView) {
+                    statusView.style.display = 'block';
+                    console.log('✅ Status view shown, calling updateStatusView()');
+                    updateStatusView(); // Refresh status when switching to status tab
+                } else {
+                    console.error('❌ perf-status-view element not found');
+                }
             }
             
             // Update tab styling
-            el.style.borderBottomColor = 'var(--nav-accent)';
-            el.style.color = 'var(--nav-accent)';
+            if (el) {
+                el.style.borderBottomColor = 'var(--nav-accent)';
+                el.style.color = 'var(--nav-accent)';
+            }
         }
 
         async function updateStatusView() {
@@ -1717,17 +1732,33 @@
             }
             
             // Populate dropdowns
-            dateTimeOptions.forEach(opt => {
-                const option1 = document.createElement('option');
-                option1.value = opt.value;
-                option1.textContent = opt.display;
-                startDateTimeSelect.appendChild(option1);
-                
-                const option2 = document.createElement('option');
-                option2.value = opt.value;
-                option2.textContent = opt.display;
-                endDateTimeSelect.appendChild(option2);
-            });
+            console.log(`📊 Populating ${dateTimeOptions.length} date/time options...`);
+            let addedCount = 0;
+            try {
+                dateTimeOptions.forEach(opt => {
+                    const option1 = document.createElement('option');
+                    option1.value = opt.value;
+                    option1.textContent = opt.display;
+                    startDateTimeSelect.appendChild(option1);
+                    
+                    const option2 = document.createElement('option');
+                    option2.value = opt.value;
+                    option2.textContent = opt.display;
+                    endDateTimeSelect.appendChild(option2);
+                    addedCount++;
+                });
+                console.log(`✅ Added ${addedCount} options to each dropdown`);
+                console.log(`✅ Verification: startDateTimeSelect has ${startDateTimeSelect.options.length} options`);
+                console.log(`✅ Verification: endDateTimeSelect has ${endDateTimeSelect.options.length} options`);
+            } catch (e) {
+                console.error('❌ Error populating dropdowns:', e);
+                // Add at least one option so dropdown is visible
+                const fallbackOption = document.createElement('option');
+                fallbackOption.value = '';
+                fallbackOption.textContent = 'Error loading dates - please refresh';
+                startDateTimeSelect.appendChild(fallbackOption);
+                endDateTimeSelect.appendChild(fallbackOption.cloneNode(true));
+            }
             
             // Set default values: Start = 3 months ago at 9:30 AM, End = today at 4:00 PM
             const threeMonthsAgo = new Date(now);
