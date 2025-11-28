@@ -117,9 +117,9 @@ class LiveTradingLoop:
             logger.info(f"🔵 [LiveLoop] Connecting data feed...")
             self.data_feed.connect()
             logger.info(f"✅ [LiveLoop] Data feed connected successfully")
-            # Preload bars - request 100 bars to ensure we get at least 50+ bars
-            # This speeds up startup by loading historical data immediately
-            logger.info(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
+                    # Preload bars - request 100 bars to ensure we get at least 50+ bars
+                    # This speeds up startup by loading historical data immediately
+                    logger.info(f"🔵 [LiveLoop] Preloading bars for {symbol}...")(f"🔵 [LiveLoop] Subscribing to symbols {self.config.symbols} with preload_bars=100...")
             subscribe_result = self.data_feed.subscribe(self.config.symbols, preload_bars=100)  # Preload 100 bars for faster startup
             logger.info(f"✅ [LiveLoop] Subscribe result: {subscribe_result}")
             
@@ -140,9 +140,12 @@ class LiveTradingLoop:
                     loaded_count = len(self.bar_history[symbol])
                     logger.info(f"Loaded {loaded_count} bars for {symbol} (preloaded: {len(preloaded)})")
                     
-                    # Update bar_count to reflect preloaded bars
+                    # CRITICAL FIX: Update bars_per_symbol during preload
+                    # This ensures bars_per_symbol reflects all bars, not just loop-processed ones
                     if loaded_count > 0:
+                        self.bars_per_symbol[symbol] = loaded_count
                         self.bar_count = max(self.bar_count, loaded_count)
+                        logger.info(f"✅ [LiveLoop] Updated bars_per_symbol[{symbol}] = {loaded_count} (from preload)")
                     
                     # Warn if we have fewer bars than desired, but continue anyway
                     if loaded_count < 50:
