@@ -326,9 +326,12 @@ class CachedDataFeed(BaseDataFeed):
                 
                 if available > 0:
                     end_idx = min(current_idx + remaining, len(cached_bars))
-                    bars.extend(cached_bars[current_idx:end_idx])
+                    new_bars = cached_bars[current_idx:end_idx]
+                    bars.extend(new_bars)
                     self.current_indices[symbol] = end_idx
-                    logger.debug(f"Got {len(bars)} bars from cached_data for {symbol} (idx {current_idx} to {end_idx})")
+                    logger.info(f"✅ [CachedDataFeed] Got {len(new_bars)} bars from cached_data for {symbol} (idx {current_idx} to {end_idx}, total cached: {len(cached_bars)})")
+                else:
+                    logger.warning(f"⚠️ [CachedDataFeed] No more bars available in cached_data for {symbol} (current_idx={current_idx}, total={len(cached_bars)})")
             
             # If still need more bars and cached_data is empty/exhausted, use synthetic fallback
             if len(bars) < n:
