@@ -306,8 +306,9 @@ class LiveTradingLoop:
                                         logger.info(f"✅ [LiveLoop] Current state: bar_count={self.bar_count}, bars_per_symbol={self.bars_per_symbol}")
                                 
                                 # Log progress every 100 bars (reduces I/O overhead)
-                                if self.bars_per_symbol.get(symbol, 0) % 100 == 0:
-                                    logger.info(f"🔵 [LiveLoop] {symbol} processed {self.bars_per_symbol[symbol]} bars so far")
+                                symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                                if self.bars_per_symbol.get(symbol_key, 0) % 100 == 0:
+                                    logger.info(f"🔵 [LiveLoop] {symbol_key} processed {self.bars_per_symbol[symbol_key]} bars so far")
                             else:
                                 # No more bars available for this symbol
                                 cached_data = getattr(self.data_feed, 'cached_data', {})
@@ -356,14 +357,16 @@ class LiveTradingLoop:
                                             self.is_running = False
                                             break
                                     
-                        self._process_bar(symbol, bar)
+                                    self._process_bar(symbol, bar)
                                     bars_processed += 1
                                     bars_this_iteration += 1
-                                    self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                                    # Ensure symbol case matches exactly (SPY not spy)
+                                    symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                                    self.bars_per_symbol[symbol_key] = self.bars_per_symbol.get(symbol_key, 0) + 1
                                     consecutive_no_bars = 0
                                     # Log every 100 bars instead of every bar
-                                    if self.bars_per_symbol[symbol] % 100 == 0:
-                                        logger.info(f"🔵 [LiveLoop] {symbol} processed {self.bars_per_symbol[symbol]} bars so far")
+                                    if self.bars_per_symbol.get(symbol_key, 0) % 100 == 0:
+                                        logger.info(f"🔵 [LiveLoop] {symbol_key} processed {self.bars_per_symbol[symbol_key]} bars so far")
                                 else:
                                     # No more bars available
                                     cached_data = getattr(self.data_feed, 'cached_data', {})
