@@ -736,6 +736,195 @@
             // Show selected
             document.getElementById(`ana-${tabId}`).style.display = 'block';
             el.classList.add('active');
+            
+            // Load data for the selected tab
+            if (tabId === 'perf') {
+                updatePerformanceAnalytics();
+            } else if (tabId === 'regime') {
+                updateRegimeAnalytics();
+            } else if (tabId === 'vol') {
+                updateVolatilityAnalytics();
+            }
+        }
+        
+        // --- Analytics Data Updates ---
+        async function updatePerformanceAnalytics() {
+            try {
+                const [stats, health] = await Promise.all([
+                    fetch(`${API_BASE}/stats`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null)
+                ]);
+                
+                const perfDiv = document.querySelector('#ana-perf .data-card .card-body');
+                if (!perfDiv) return;
+                
+                if (!stats) {
+                    perfDiv.innerHTML = '<div style="text-align:center; color:var(--text-secondary); padding:20px;">No performance data available. Start trading to see metrics.</div>';
+                    return;
+                }
+                
+                const totalReturn = stats.total_return_pct || 0;
+                const sharpe = stats.sharpe_ratio || 0;
+                const maxDrawdown = stats.max_drawdown_pct || 0;
+                const winRate = stats.win_rate || 0;
+                const totalTrades = stats.total_trades || 0;
+                
+                perfDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Total Return</div>
+                            <div style="font-size: 24px; font-weight: 700; color: ${totalReturn >= 0 ? '#10b981' : '#ef4444'};">${totalReturn.toFixed(2)}%</div>
+                        </div>
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Sharpe Ratio</div>
+                            <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${sharpe.toFixed(2)}</div>
+                        </div>
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Max Drawdown</div>
+                            <div style="font-size: 24px; font-weight: 700; color: ${maxDrawdown <= 0 ? '#10b981' : '#ef4444'};">${maxDrawdown.toFixed(2)}%</div>
+                        </div>
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Win Rate</div>
+                            <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${(winRate * 100).toFixed(1)}%</div>
+                        </div>
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Total Trades</div>
+                            <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${totalTrades}</div>
+                        </div>
+                        <div style="padding: 12px; background: #1f2937; border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Status</div>
+                            <div style="font-size: 14px; font-weight: 600; color: ${health?.is_running ? '#10b981' : '#ef4444'};">${health?.is_running ? 'Running' : 'Stopped'}</div>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Error updating performance analytics:', e);
+            }
+        }
+        
+        async function updateRegimeAnalytics() {
+            try {
+                const [regime, health] = await Promise.all([
+                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null)
+                ]);
+                
+                const regimeDiv = document.querySelector('#ana-regime .card-body');
+                if (!regimeDiv) return;
+                
+                if (!regime || !regime.is_valid) {
+                    regimeDiv.innerHTML = '<div style="text-align:center; color:var(--text-secondary); padding:20px;">No regime data available. Need 30+ bars for analysis.</div>';
+                    return;
+                }
+                
+                const regimeType = regime.regime_type || 'N/A';
+                const trend = regime.trend_direction || 'N/A';
+                const volatility = regime.volatility_level || 'N/A';
+                const bias = regime.bias || 'N/A';
+                const confidence = (regime.confidence || 0) * 100;
+                
+                regimeDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #8b5cf6;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Current Regime</div>
+                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${regimeType}</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #3b82f6;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Trend Direction</div>
+                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${trend}</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Volatility Level</div>
+                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: capitalize;">${volatility}</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${bias === 'BULLISH' ? '#10b981' : bias === 'BEARISH' ? '#ef4444' : '#9ca3af'};">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Bias</div>
+                            <div style="font-size: 20px; font-weight: 700; color: ${bias === 'BULLISH' ? '#10b981' : bias === 'BEARISH' ? '#ef4444' : '#9ca3af'}; text-transform: capitalize;">${bias}</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #10b981;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Confidence</div>
+                            <div style="font-size: 20px; font-weight: 700; color: ${confidence >= 70 ? '#10b981' : confidence >= 40 ? '#f59e0b' : '#ef4444'};">${confidence.toFixed(1)}%</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${regime.is_valid ? '#10b981' : '#ef4444'};">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Status</div>
+                            <div style="font-size: 14px; font-weight: 600; color: ${regime.is_valid ? '#10b981' : '#ef4444'};">${regime.is_valid ? 'Valid' : 'Invalid'}</div>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Error updating regime analytics:', e);
+            }
+        }
+        
+        async function updateVolatilityAnalytics() {
+            try {
+                const [regime, stats, liveStatus] = await Promise.all([
+                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/stats`).then(r => r.json()).catch(() => null),
+                    fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => null)
+                ]);
+                
+                const volDiv = document.querySelector('#ana-vol .card-body');
+                if (!volDiv) return;
+                
+                if (!regime || !regime.is_valid) {
+                    volDiv.innerHTML = '<div style="text-align:center; color:var(--text-secondary); padding:20px;">No volatility data available. Need 30+ bars for analysis.</div>';
+                    return;
+                }
+                
+                const volatility = regime.volatility_level || 'N/A';
+                const atrPct = regime.metrics?.atr_pct || 0;
+                const barCount = liveStatus?.bar_count || 0;
+                
+                // Determine volatility status
+                let volStatus = 'NORMAL';
+                let volColor = '#f59e0b';
+                if (volatility === 'HIGH') {
+                    volStatus = 'HIGH VOLATILITY';
+                    volColor = '#ef4444';
+                } else if (volatility === 'LOW') {
+                    volStatus = 'LOW VOLATILITY';
+                    volColor = '#10b981';
+                }
+                
+                volDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid ${volColor};">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Volatility Level</div>
+                            <div style="font-size: 20px; font-weight: 700; color: ${volColor}; text-transform: uppercase;">${volatility}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${volStatus}</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #3b82f6;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">ATR %</div>
+                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary);">${(atrPct * 100).toFixed(2)}%</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Average True Range</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #8b5cf6;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Bars Analyzed</div>
+                            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary);">${barCount}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${barCount >= 30 ? 'Sufficient' : 'Insufficient'} for analysis</div>
+                        </div>
+                        <div style="padding: 16px; background: #1f2937; border-radius: 6px; border-left: 3px solid #10b981;">
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">Trading Recommendation</div>
+                            <div style="font-size: 16px; font-weight: 700; color: ${volatility === 'HIGH' ? '#ef4444' : volatility === 'LOW' ? '#9ca3af' : '#10b981'};">
+                                ${volatility === 'HIGH' ? 'CAUTION - High Risk' : volatility === 'LOW' ? 'STABLE - Low Risk' : 'NORMAL - Moderate Risk'}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px; padding: 12px; background: #1f2937; border-radius: 6px;">
+                        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">Volatility Interpretation</div>
+                        <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+                            ${volatility === 'HIGH' ? 
+                                'High volatility indicates increased market uncertainty. Consider smaller position sizes and tighter stop losses.' :
+                                volatility === 'LOW' ?
+                                'Low volatility suggests stable market conditions. Normal position sizing and stop losses are appropriate.' :
+                                'Normal volatility indicates standard market conditions. Standard trading parameters apply.'}
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Error updating volatility analytics:', e);
+            }
         }
 
         function showPerfTab(tabId, el) {
