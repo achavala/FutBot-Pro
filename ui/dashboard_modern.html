@@ -1496,6 +1496,10 @@
 
             if (viewId === 'trades') updateFullTradesLog();
             if (viewId === 'agents') updateAgentsView();
+            if (viewId === 'analytics') {
+                // Load Performance tab by default when Analytics view opens
+                updatePerformanceAnalytics();
+            }
         }
 
         // --- Notifications ---
