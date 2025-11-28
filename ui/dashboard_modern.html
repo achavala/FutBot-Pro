@@ -1689,22 +1689,33 @@
         // Make function globally available
         window.initDateTimeDropdowns = function initDateTimeDropdowns() {
             console.log('🔄 initDateTimeDropdowns() called');
-            const startDateTimeSelect = document.getElementById('simStartDateTime');
-            const endDateTimeSelect = document.getElementById('simEndDateTime');
+            console.log('📋 Current URL:', window.location.href);
+            console.log('📋 Document ready state:', document.readyState);
+            
+            // Try multiple possible IDs
+            const startDateTimeSelect = document.getElementById('simStartDateTime') || 
+                                       document.getElementById('simStartDate') ||
+                                       document.querySelector('select[id*="Start"]');
+            const endDateTimeSelect = document.getElementById('simEndDateTime') || 
+                                     document.getElementById('simEndDate') ||
+                                     document.querySelector('select[id*="End"]');
             
             console.log('Dropdown elements:', {
-                start: startDateTimeSelect ? 'found' : 'NOT FOUND',
-                end: endDateTimeSelect ? 'found' : 'NOT FOUND',
+                start: startDateTimeSelect ? '✅ FOUND' : '❌ NOT FOUND',
+                end: endDateTimeSelect ? '✅ FOUND' : '❌ NOT FOUND',
                 startId: startDateTimeSelect?.id,
-                endId: endDateTimeSelect?.id
+                endId: endDateTimeSelect?.id,
+                allSelects: document.querySelectorAll('select').length,
+                allSelectIds: Array.from(document.querySelectorAll('select')).map(s => s.id).join(', ')
             });
             
             if (!startDateTimeSelect || !endDateTimeSelect) {
-                console.error('❌ Date/Time dropdowns not found', {
+                console.error('❌ Date/Time dropdowns not found!', {
                     start: !!startDateTimeSelect,
                     end: !!endDateTimeSelect,
                     allSelects: document.querySelectorAll('select').length,
-                    allSelectIds: Array.from(document.querySelectorAll('select')).map(s => s.id)
+                    allSelectIds: Array.from(document.querySelectorAll('select')).map(s => s.id).join(', '),
+                    pageSource: document.documentElement.innerHTML.substring(0, 500)
                 });
                 // Retry after a short delay
                 setTimeout(initDateTimeDropdowns, 1000);
@@ -1806,14 +1817,34 @@
             
             // Set defaults
             if (dateTimeOptions.length > 0) {
-                startDateTimeSelect.value = defaultStartValue;
-                endDateTimeSelect.value = defaultEndValue;
-                console.log(`✅ Combined Date/Time dropdowns initialized with ${dateTimeOptions.length} options`);
-                console.log(`   Start default: ${defaultStartValue}`);
-                console.log(`   End default: ${defaultEndValue}`);
+                try {
+                    startDateTimeSelect.value = defaultStartValue;
+                    endDateTimeSelect.value = defaultEndValue;
+                    console.log(`✅ Combined Date/Time dropdowns initialized with ${dateTimeOptions.length} options`);
+                    console.log(`   Start default: ${defaultStartValue}`);
+                    console.log(`   End default: ${defaultEndValue}`);
+                    console.log(`   ✅ Start dropdown now has ${startDateTimeSelect.options.length} options`);
+                    console.log(`   ✅ End dropdown now has ${endDateTimeSelect.options.length} options`);
+                    
+                    // Visual confirmation - change placeholder text
+                    if (startDateTimeSelect.options.length > 1) {
+                        console.log('✅ SUCCESS: Dropdowns are populated!');
+                    }
+                } catch (e) {
+                    console.error('❌ Error setting default values:', e);
+                }
             } else {
                 console.error('❌ No date/time options generated!');
             }
+        }
+        
+        // Also expose a test function
+        window.testDropdowns = function() {
+            console.log('🧪 Testing dropdowns...');
+            console.log('simStartDateTime:', document.getElementById('simStartDateTime'));
+            console.log('simEndDateTime:', document.getElementById('simEndDateTime'));
+            console.log('All selects:', Array.from(document.querySelectorAll('select')).map(s => ({id: s.id, options: s.options.length})));
+            initDateTimeDropdowns();
         }
         
         // Initialize on page load - ensure it runs
