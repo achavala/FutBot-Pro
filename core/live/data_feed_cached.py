@@ -315,20 +315,37 @@ class CachedDataFeed(BaseDataFeed):
         
         # If we still need more bars, get from cached data
         if len(bars) < n:
-            if symbol not in self.cached_data or len(self.cached_data[symbol]) == 0:
-                # SYNTHETIC FALLBACK: Generate bars if enabled
-                if self.synthetic_enabled:
-                    needed = n - len(bars)
-                    logger.info(f"🔄 No cached data for {symbol}, generating {needed} synthetic bars")
-                    synthetic_bars = self._generate_synthetic_bars(symbol, count=needed)
-                    if synthetic_bars:
-                        # Add to cached_data for persistence
-                        if symbol not in self.cached_data:
-                            self.cached_data[symbol] = []
-                        self.cached_data[symbol].extend(synthetic_bars)
-                        bars.extend(synthetic_bars)
-                        logger.info(f"✅ Generated and added {len(synthetic_bars)} synthetic bars for {symbol}")
-                        return bars
+            # CRITICAL: Check if we have cached_data and haven't exhausted it
+            if symbol in self.cached_data and len(self.cached_data[symbol]) > 0:
+                current_idx = self.current_indices.get(symbol, 0)
+                cached_bars = self.cached_data[symbol]
+                
+                # Get remaining bars needed
+                remaining = n - len(bars)
+                available = len(cached_bars) - current_idx
+                
+                if available > 0:
+                    end_idx = min(current_idx + remaining, len(cached_bars))
+                    bars.extend(cached_bars[current_idx:end_idx])
+                    self.current_indices[symbol] = end_idx
+                    logger.debug(f"Got {len(bars)} bars from cached_data for {symbol} (idx {current_idx} to {end_idx})")
+            
+            # If still need more bars and cached_data is empty/exhausted, use synthetic fallback
+            if len(bars) < n:
+                if symbol not in self.cached_data or len(self.cached_data.get(symbol, [])) == 0 or self.current_indices.get(symbol, 0) >= len(self.cached_data.get(symbol, [])):
+                    # SYNTHETIC FALLBACK: Generate bars if enabled
+                    if self.synthetic_enabled:
+                        needed = n - len(bars)
+                        logger.info(f"🔄 [CachedDataFeed] No more cached data for {symbol}, generating {needed} synthetic bars")
+                        synthetic_bars = self._generate_synthetic_bars(symbol, count=needed)
+                        if synthetic_bars:
+                            # Add to cached_data for persistence
+                            if symbol not in self.cached_data:
+                                self.cached_data[symbol] = []
+                            self.cached_data[symbol].extend(synthetic_bars)
+                            bars.extend(synthetic_bars)
+                            logger.info(f"✅ [CachedDataFeed] Generated and added {len(synthetic_bars)} synthetic bars for {symbol}")
+                            return bars
                 return bars  # Return what we have
             
             current_idx = self.current_indices.get(symbol, 0)
