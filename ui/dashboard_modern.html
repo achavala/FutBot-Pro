@@ -1332,6 +1332,12 @@
 
         // --- API Controls ---
         async function startSimulation() {
+            // Check if market is open
+            if (marketStatus.is_open) {
+                showToast('Simulation is disabled during trading hours (9:30 AM - 4:00 PM ET). Use "Start Live" for live trading.', 'error');
+                return;
+            }
+            
             const btn = document.getElementById('btnSim');
             const originalText = btn.innerHTML;
             btn.disabled = true;

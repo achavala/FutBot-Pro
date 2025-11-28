@@ -924,6 +924,51 @@ async def stop_live_trading():
     return {"status": "stopped", "message": "Live trading stopped successfully"}
 
 
+@app.get("/market/status")
+async def get_market_status():
+    """Check if US market is currently open (9:30 AM - 4:00 PM ET, weekdays only)."""
+    from datetime import datetime, timezone, timedelta
+    
+    now_utc = datetime.now(timezone.utc)
+    
+    # Convert to ET (handles DST)
+    # ET is UTC-5 (EST) or UTC-4 (EDT)
+    # DST runs from second Sunday in March to first Sunday in November
+    year = now_utc.year
+    # Find second Sunday in March
+    march_1 = datetime(year, 3, 1, tzinfo=timezone.utc)
+    march_1_weekday = march_1.weekday()
+    days_to_second_sunday = (6 - march_1_weekday) % 7 + 7  # First Sunday + 7 days
+    dst_start = march_1 + timedelta(days=days_to_second_sunday)
+    
+    # Find first Sunday in November
+    nov_1 = datetime(year, 11, 1, tzinfo=timezone.utc)
+    nov_1_weekday = nov_1.weekday()
+    days_to_first_sunday = (6 - nov_1_weekday) % 7
+    dst_end = nov_1 + timedelta(days=days_to_first_sunday)
+    
+    # Determine if DST is active
+    is_dst = dst_start <= now_utc < dst_end
+    et_offset = -4 if is_dst else -5
+    et_time = now_utc + timedelta(hours=et_offset)
+    
+    # Check if weekday (Monday=0, Sunday=6)
+    is_weekday = et_time.weekday() < 5
+    
+    # Check time (9:30 AM - 4:00 PM ET)
+    hour = et_time.hour
+    minute = et_time.minute
+    is_trading_hours = is_weekday and hour >= 9 and (hour < 16 or (hour == 9 and minute >= 30))
+    
+    return {
+        "is_open": is_trading_hours,
+        "current_time_et": et_time.strftime("%Y-%m-%d %H:%M:%S ET"),
+        "current_time_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "is_weekday": is_weekday,
+        "trading_hours": "9:30 AM - 4:00 PM ET",
+    }
+
+
 @app.get("/live/status")
 async def get_live_status():
     """Get live trading status."""
