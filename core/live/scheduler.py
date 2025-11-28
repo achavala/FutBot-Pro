@@ -219,6 +219,7 @@ class LiveTradingLoop:
         """Main event loop (runs in background thread)."""
         from datetime import datetime, timezone
         self.start_time = datetime.now(timezone.utc)
+        logger.info(f"🔵 [LiveLoop] _run_loop() STARTED - thread is running!")
         
         # Use explicit offline_mode from config, or detect via cache_path
         is_offline_mode = self.config.offline_mode or hasattr(self.data_feed, 'cache_path')
