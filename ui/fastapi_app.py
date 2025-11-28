@@ -194,6 +194,25 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FutBot Trading System API",
     description="Control panel and monitoring API for the regime-aware trading bot",
+    version="1.0.0"
+)
+
+# Add version endpoint to confirm server is running new code
+@app.get("/version")
+async def get_version():
+    """Get server version and build info."""
+    return {
+        "version": "1.0.0",
+        "build_date": "2024-11-28",
+        "features": [
+            "synthetic_bar_fallback",
+            "bars_per_symbol_preload_fix",
+            "testing_mode",
+            "aggressive_logging",
+            "symbol_case_normalization"
+        ],
+        "status": "ready"
+    }
     version="1.0.0",
     lifespan=lifespan,
 )
