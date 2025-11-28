@@ -2167,14 +2167,28 @@
                 const res = await fetch(`${API_BASE}/market/status`);
                 marketStatus = await res.json();
                 
-                // Hide simulation controls during trading hours (no market status display)
-                const simControls = document.querySelectorAll('#simSymbol, #simStartTime, #simEndTime, #replaySpeed, #btnSim');
+                // Show/hide Start Live button based on market hours
+                const btnStart = document.getElementById('btnStart');
+                if (btnStart) {
+                    if (marketStatus.is_open) {
+                        btnStart.style.display = 'inline-block'; // Show during trading hours
+                    } else {
+                        btnStart.style.display = 'none'; // Hide during non-trading hours
+                    }
+                }
                 
-                if (marketStatus.is_open) {
-                    // Market is open - hide simulation controls completely
-                    simControls.forEach(ctrl => {
-                        if (ctrl) ctrl.style.display = 'none';
-                    });
+                // Keep Simulate button and all simulation controls always visible
+                // Users can test historical data anytime
+                const btnSim = document.getElementById('btnSim');
+                if (btnSim) {
+                    btnSim.style.display = 'inline-block'; // Always visible
+                }
+                
+                // Keep all simulation controls visible
+                const simControls = document.querySelectorAll('#simStartDateTime, #simEndDateTime, #replaySpeed');
+                simControls.forEach(ctrl => {
+                    if (ctrl) ctrl.style.display = 'inline-block';
+                });
                     
                     // Auto-start live trading if not already running
                     if (!autoStartAttempted) {
