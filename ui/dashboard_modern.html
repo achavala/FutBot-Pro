@@ -1410,38 +1410,46 @@
             const readyStatusColor = '#10b981';
 
             // Get current evaluation time (CST timezone)
-            // If last_bar_time is old (>5 min) and bot is running, show current time
+            // ALWAYS show current time when bot is running (fixes timestamp issue)
             const evalCurrentTime = new Date();
-            let evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            let evalTimeFormatted;
             
-            if (evalBarTime && liveStatus?.is_running) {
-                const lastBarDate = new Date(evalBarTime);
-                const timeDiff = (evalCurrentTime - lastBarDate) / 1000 / 60; // minutes ago
-                // If last bar is more than 5 minutes old, show current time
-                if (timeDiff > 5) {
-                    evalBarTime = evalCurrentTime.toISOString(); // Use current time
+            if (liveStatus && liveStatus.is_running) {
+                // Bot is running - ALWAYS show current CST time
+                evalTimeFormatted = evalCurrentTime.toLocaleString('en-US', {
+                    timeZone: 'America/Chicago',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                }) + ' CST';
+            } else {
+                // Bot not running - show last bar time or current time
+                const evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+                if (evalBarTime) {
+                    evalTimeFormatted = new Date(evalBarTime).toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                    }) + ' CST';
+                } else {
+                    evalTimeFormatted = evalCurrentTime.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                    }) + ' CST';
                 }
             }
-            
-            const evalTimeFormatted = evalBarTime 
-                ? new Date(evalBarTime).toLocaleString('en-US', {
-                    timeZone: 'America/Chicago',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: true
-                  }) + ' CST'
-                : evalCurrentTime.toLocaleString('en-US', {
-                    timeZone: 'America/Chicago',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: true
-                  }) + ' CST';
             
             setupsDiv.innerHTML = `
                 <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${setupColor};">
