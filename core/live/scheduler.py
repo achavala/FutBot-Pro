@@ -494,18 +494,31 @@ class LiveTradingLoop:
                 
                 if result.success:
                     logger.info(f"✅ [ULTRA FORCE] Trade executed successfully! Order ID: {result.order.order_id if result.order else 'N/A'}")
-                    # Update portfolio
-                    if result.position_delta_applied > 0:
-                        trade = self.portfolio.open_position(
+                    # Update portfolio using add_position
+                    if result.position_delta_applied != 0:
+                        self.portfolio.add_position(
                             symbol,
-                            current_price,
                             result.position_delta_applied,
-                            bar.timestamp,
-                            "ULTRA FORCE",
-                            "trend_agent"
+                            current_price,
+                            bar.timestamp
                         )
-                        if trade:
-                            logger.info(f"✅ [ULTRA FORCE] Position opened: {symbol}, Quantity: {result.position_delta_applied}, Price: ${current_price:.2f}")
+                        logger.info(f"✅ [ULTRA FORCE] Position updated: {symbol}, Quantity: {result.position_delta_applied}, Price: ${current_price:.2f}")
+                        
+                        # Record trade in trade history manually
+                        from core.portfolio.manager import Trade
+                        trade = Trade(
+                            symbol=symbol,
+                            entry_time=bar.timestamp,
+                            exit_time=bar.timestamp,  # Same for now
+                            entry_price=current_price,
+                            exit_price=current_price,
+                            quantity=abs(result.position_delta_applied),
+                            pnl=0.0,  # Will be calculated on exit
+                            reason="ULTRA FORCE",
+                            agent="trend_agent"
+                        )
+                        self.portfolio.trade_history.append(trade)
+                        logger.info(f"✅ [ULTRA FORCE] Trade recorded in history: {symbol} {result.position_delta_applied} @ ${current_price:.2f}")
                 else:
                     logger.error(f"❌ [ULTRA FORCE] Trade execution failed: {result.reason}")
             except Exception as e:
