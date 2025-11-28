@@ -453,8 +453,12 @@ class LiveTradingLoop:
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
         
+        # Log every bar to confirm _process_bar is being called
+        logger.info(f"🔵 [LiveLoop] _process_bar called: bar_count={self.bar_count}, symbol={symbol}, testing_mode={getattr(self.config, 'testing_mode', False)}")
+        
         # ULTRA FORCE: In testing_mode, execute a trade immediately on EVERY bar (for immediate execution)
         if self.config.testing_mode:
+            logger.info(f"🔥 [ULTRA FORCE] testing_mode is TRUE - executing trade NOW!")
             logger.info(f"🔥 [ULTRA FORCE] Bar #{self.bar_count} - FORCING TRADE EXECUTION NOW!")
             try:
                 from core.policy.types import FinalTradeIntent
