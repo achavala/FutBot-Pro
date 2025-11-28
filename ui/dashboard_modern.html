@@ -853,7 +853,12 @@
                   })
                 : 'N/A';
             
-            if (!regime || !regime.is_valid) {
+            // If we have enough bars, treat regime as valid even if is_valid is false
+            // (backend should force-validate, but UI can also handle this)
+            const hasEnoughBars = barCount >= requiredBars;
+            const regimeValid = regime && (regime.is_valid || hasEnoughBars);
+            
+            if (!regime || !regimeValid) {
                 let message = 'Insufficient bars for analysis';
                 let suggestion = '';
                 let statusColor = '#9ca3af'; // Gray for NO DATA
@@ -865,13 +870,21 @@
                 if (barCount >= requiredBars) {
                     // Have enough bars but regime is invalid - show diagnostic
                     message = `Analysis in progress (${barCount} bars available)`;
-                    suggestion = 'Regime engine processing...';
+                    suggestion = regime ? 'Regime detected but validation pending...' : 'Waiting for regime classification';
                     statusColor = '#f59e0b'; // Orange - processing
                     statusLabel = 'PROCESSING';
                     progressColor = '#f59e0b';
                     diagnosticInfo = regime 
-                        ? `Regime: ${regime.regime_type || 'N/A'}, Confidence: ${((regime.confidence || 0) * 100).toFixed(1)}%`
-                        : 'Waiting for regime classification';
+                        ? `<div style="margin-top: 6px; padding: 6px; background: #7c2d12; border-radius: 4px; border-left: 2px solid #ef4444;">
+                            <div style="font-size: 10px; color: #fca5a5; margin-bottom: 4px;">
+                                <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
+                                <strong>Diagnostic:</strong> ${barCount} bars but regime invalid
+                            </div>
+                            <div style="font-size: 10px; color: #fca5a5;">
+                                Regime: ${regime.regime_type || 'N/A'}, Confidence: ${((regime.confidence || 0) * 100).toFixed(1)}%, Valid: ${regime.is_valid ? 'Yes' : 'No'}
+                            </div>
+                        </div>`
+                        : '<div style="margin-top: 6px; padding: 6px; background: #7c2d12; border-radius: 4px; border-left: 2px solid #ef4444;"><div style="font-size: 10px; color: #fca5a5;">No regime signal received from backend</div></div>';
                 } else if (barCount > 0) {
                     message = `Need ${barsNeeded} more bars (${barCount}/${requiredBars})`;
                     suggestion = 'Continue simulation to collect more bars';
@@ -951,7 +964,8 @@
                                     Bars: ${Object.entries(liveStatus.bars_per_symbol).map(([s, c]) => `${s}: ${c}`).join(', ')}
                                 </div>
                                 ` : ''}
-                                ${diagnosticInfo ? diagnosticInfo : ''}
+                            </div>
+                            ${diagnosticInfo ? diagnosticInfo : ''}
                             </div>
                             <div style="margin-top: 6px; color: #9ca3af;">
                                 <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
@@ -970,10 +984,14 @@
                 return;
             }
 
+            // If we reach here, we have a valid regime (or enough bars to treat it as valid)
+            // Use regime even if is_valid is false but we have enough bars
+            const effectiveRegime = regime || {};
+            
             // Determine setup quality based on regime and agents
-            const confidence = regime.confidence || 0;
-            const bias = regime.bias || 'NEUTRAL';
-            const regimeType = regime.regime_type || 'COMPRESSION';
+            const confidence = effectiveRegime.confidence || 0;
+            const bias = effectiveRegime.bias || 'NEUTRAL';
+            const regimeType = effectiveRegime.regime_type || 'COMPRESSION';
             
             let setupQuality = 'NEUTRAL';
             let setupColor = '#9ca3af';
