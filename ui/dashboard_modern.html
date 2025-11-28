@@ -791,7 +791,7 @@
                 }
 
                 // Update Trade Setups
-                updateTradeSetups(regime, agents);
+                updateTradeSetups(regime, agents, liveStatus);
 
                 // Update Agent Activity
                 updateAgentActivity(agents);
@@ -804,20 +804,46 @@
             }
         }
 
-        function updateTradeSetups(regime, agents) {
+        function updateTradeSetups(regime, agents, liveStatus) {
             const setupsDiv = document.getElementById('tradeSetups');
             setupsDiv.innerHTML = '';
 
+            // Get current bar count
+            const barCount = liveStatus?.bar_count || 0;
+            const requiredBars = 30;
+            const barsNeeded = Math.max(0, requiredBars - barCount);
+
             if (!regime || !regime.is_valid) {
+                let message = 'Insufficient bars for analysis';
+                let suggestion = '';
+                
+                if (barCount > 0) {
+                    message = `Need ${barsNeeded} more bars (${barCount}/${requiredBars})`;
+                    suggestion = 'Continue simulation to collect more bars';
+                } else {
+                    message = 'No bars collected yet';
+                    suggestion = 'Start a simulation or collect historical data';
+                }
+                
                 setupsDiv.innerHTML = `
-                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #9ca3af;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #f59e0b;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <div>
                                 <div style="font-weight: 600; color: var(--text-primary);">Waiting for Data</div>
-                                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Insufficient bars for analysis</div>
+                                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${message}</div>
                             </div>
-                            <div style="padding: 4px 8px; background: #374151; border-radius: 4px; font-size: 11px; color: #9ca3af;">
-                                PENDING
+                            <div style="padding: 4px 8px; background: #f59e0b20; border-radius: 4px; font-size: 11px; color: #f59e0b; font-weight: 600;">
+                                ${barCount > 0 ? 'COLLECTING' : 'NO DATA'}
+                            </div>
+                        </div>
+                        <div style="margin-top: 8px; padding: 8px; background: #1f2937; border-radius: 4px; font-size: 11px; color: var(--text-secondary);">
+                            <div style="margin-bottom: 4px;"><strong>Progress:</strong> ${barCount}/${requiredBars} bars</div>
+                            <div style="width: 100%; height: 4px; background: #374151; border-radius: 2px; overflow: hidden; margin: 4px 0;">
+                                <div style="width: ${Math.min(100, (barCount / requiredBars) * 100)}%; height: 100%; background: #f59e0b; transition: width 0.3s;"></div>
+                            </div>
+                            <div style="margin-top: 6px; color: #9ca3af;">
+                                <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
+                                ${suggestion}
                             </div>
                         </div>
                     </div>
