@@ -240,13 +240,13 @@ async def root():
     
     if webull_dashboard.exists():
         html_content = webull_dashboard.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     elif modern_dashboard.exists():
         html_content = modern_dashboard.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     elif dashboard_path.exists():
         html_content = dashboard_path.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     
     # Fallback: return simple HTML redirect message
     return HTMLResponse(
@@ -297,15 +297,22 @@ async def dashboard():
     webull_dashboard = Path(__file__).parent / "dashboard_webull.html"
     dashboard_path = Path(__file__).parent / "dashboard.html"
     
+    # Add cache-busting headers to prevent browser caching
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+    
     if modern_dashboard.exists():
         html_content = modern_dashboard.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     elif webull_dashboard.exists():
         html_content = webull_dashboard.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     elif dashboard_path.exists():
         html_content = dashboard_path.read_text(encoding='utf-8')
-        return HTMLResponse(content=html_content, media_type="text/html")
+        return HTMLResponse(content=html_content, media_type="text/html", headers=headers)
     raise HTTPException(status_code=404, detail="Dashboard not found")
 
 
