@@ -744,9 +744,15 @@
     <div id="toast" class="toast">Notification</div>
 
     <script>
-        // VERIFY SCRIPT IS LOADING
-        console.log('✅ Dashboard JavaScript is loading...');
-        console.log('✅ Script tag executed at:', new Date().toISOString());
+        // CRITICAL: This MUST execute - if you don't see this log, script isn't running
+        try {
+            console.log('✅ Dashboard JavaScript is loading...');
+            console.log('✅ Script tag executed at:', new Date().toISOString());
+            console.log('✅ Window object:', typeof window);
+            console.log('✅ Document ready state:', document.readyState);
+        } catch(e) {
+            console.error('❌ ERROR in initial script:', e);
+        }
         
         const API_BASE = window.location.origin;
         let charts = {}; // Store chart instances
@@ -1843,9 +1849,14 @@
         }
         
         // CRITICAL: Assign to window IMMEDIATELY after function definition
-        window.initDateTimeDropdowns = initDateTimeDropdowns;
-        console.log('✅ initDateTimeDropdowns assigned to window:', typeof window.initDateTimeDropdowns);
-        console.log('✅ Window.initDateTimeDropdowns exists:', 'initDateTimeDropdowns' in window);
+        try {
+            window.initDateTimeDropdowns = initDateTimeDropdowns;
+            console.log('✅ initDateTimeDropdowns assigned to window:', typeof window.initDateTimeDropdowns);
+            console.log('✅ Window.initDateTimeDropdowns exists:', 'initDateTimeDropdowns' in window);
+            console.log('✅ Can call window.initDateTimeDropdowns:', typeof window.initDateTimeDropdowns === 'function');
+        } catch(e) {
+            console.error('❌ ERROR assigning to window:', e);
+        }
         
         // Also expose a test function
         window.testDropdowns = function() {
