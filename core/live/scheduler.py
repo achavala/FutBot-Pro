@@ -249,6 +249,19 @@ class LiveTradingLoop:
                         if hasattr(self.data_feed, 'get_next_n_bars'):
                             # Batch fetch up to 10 bars at once
                             batch_bars = self.data_feed.get_next_n_bars(symbol, n=10, timeout=0.1)
+                            
+                            # SYNTHETIC FALLBACK: If no bars and synthetic enabled, generate them
+                            if not batch_bars and hasattr(self.data_feed, 'synthetic_enabled') and self.data_feed.synthetic_enabled:
+                                logger.info(f"🔄 No batch bars for {symbol}, generating synthetic bars")
+                                if hasattr(self.data_feed, '_generate_synthetic_bars'):
+                                    batch_bars = self.data_feed._generate_synthetic_bars(symbol, count=10)
+                                    if batch_bars:
+                                        # Add to cached_data so they persist
+                                        if symbol not in self.data_feed.cached_data:
+                                            self.data_feed.cached_data[symbol] = []
+                                        self.data_feed.cached_data[symbol].extend(batch_bars)
+                                        logger.info(f"✅ Generated {len(batch_bars)} synthetic bars for {symbol}")
+                            
                             if batch_bars:
                                 for bar in batch_bars:
                                     if not self.is_running:
@@ -299,6 +312,16 @@ class LiveTradingLoop:
                             max_bars_per_iteration = 10
                             while bars_this_iteration < max_bars_per_iteration and self.is_running:
                                 bar = self.data_feed.get_next_bar(symbol, timeout=0.1)
+                                
+                                # SYNTHETIC FALLBACK: If no bar and synthetic enabled, generate one
+                                if not bar and hasattr(self.data_feed, 'synthetic_enabled') and self.data_feed.synthetic_enabled:
+                                    logger.debug(f"🔄 No bar for {symbol} in fallback loop, generating synthetic")
+                                    if hasattr(self.data_feed, '_generate_synthetic_bars'):
+                                        synthetic_bars = self.data_feed._generate_synthetic_bars(symbol, count=1)
+                                        if synthetic_bars:
+                                            bar = synthetic_bars[0]
+                                            logger.info(f"✅ Generated synthetic bar for {symbol} in fallback loop")
+                                
                                 if bar:
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
@@ -341,6 +364,16 @@ class LiveTradingLoop:
                     else:
                         # Live mode: process one bar per symbol per iteration
                         bar = self.data_feed.get_next_bar(symbol, timeout=1.0)
+                        
+                        # SYNTHETIC FALLBACK: If no bar returned and synthetic is enabled, generate one
+                        if not bar and hasattr(self.data_feed, 'synthetic_enabled') and self.data_feed.synthetic_enabled:
+                            logger.debug(f"🔄 No bar from data feed for {symbol}, attempting synthetic fallback")
+                            if hasattr(self.data_feed, '_generate_synthetic_bars'):
+                                synthetic_bars = self.data_feed._generate_synthetic_bars(symbol, count=1)
+                                if synthetic_bars:
+                                    bar = synthetic_bars[0]
+                                    logger.info(f"✅ Generated synthetic bar for {symbol} in live loop")
+                        
                         if bar:
                             # Update last_bar_time immediately when bar is received
                             self.last_bar_time = bar.timestamp
@@ -349,6 +382,8 @@ class LiveTradingLoop:
                             self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
                             consecutive_no_bars = 0
                             logger.debug(f"📊 [LiveLoop] Processed bar for {symbol}: {bar.timestamp}, Total bars: {self.bars_per_symbol[symbol]}")
+                        else:
+                            logger.debug(f"⚠️ [LiveLoop] No bar available for {symbol} (timeout or no data)")
 
                 # Handle end of data in offline mode
                 if is_offline_mode:

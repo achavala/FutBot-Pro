@@ -48,6 +48,7 @@ class CachedDataFeed(BaseDataFeed):
         self.bar_buffers: dict[str, Deque[Bar]] = {}
         self.current_indices: dict[str, int] = {}  # Track current position in cached data
         self.cached_data: dict[str, list] = {}  # Store loaded cached data
+        self.synthetic_enabled: bool = True  # Enable synthetic bar generation as fallback
         
         self.connected = False
         
@@ -243,6 +244,17 @@ class CachedDataFeed(BaseDataFeed):
         # No buffered bars, get next from cached data
         if symbol not in self.cached_data or len(self.cached_data[symbol]) == 0:
             logger.debug(f"No cached data available for {symbol}")
+            # SYNTHETIC FALLBACK: Generate synthetic bar if enabled
+            if self.synthetic_enabled:
+                logger.info(f"🔄 Generating synthetic bar for {symbol} (fallback mode)")
+                synthetic_bars = self._generate_synthetic_bars(symbol, count=1)
+                if synthetic_bars:
+                    self.cached_data[symbol] = synthetic_bars
+                    self.current_indices[symbol] = 0
+                    bar = synthetic_bars[0]
+                    self.current_indices[symbol] = 1
+                    logger.info(f"✅ Generated and returned synthetic bar for {symbol}")
+                    return bar
             return None
 
         # Get next bar from cached data
@@ -251,6 +263,16 @@ class CachedDataFeed(BaseDataFeed):
         
         if current_idx >= len(cached_bars):
             logger.debug(f"Reached end of cached data for {symbol}")
+            # SYNTHETIC FALLBACK: Generate more synthetic bars if enabled
+            if self.synthetic_enabled:
+                logger.info(f"🔄 End of cached data for {symbol}, generating more synthetic bars")
+                synthetic_bars = self._generate_synthetic_bars(symbol, count=100)
+                if synthetic_bars:
+                    self.cached_data[symbol].extend(synthetic_bars)
+                    bar = synthetic_bars[0]
+                    self.current_indices[symbol] = current_idx + 1
+                    logger.info(f"✅ Generated and returned additional synthetic bar for {symbol}")
+                    return bar
             return None
         
         bar = cached_bars[current_idx]
