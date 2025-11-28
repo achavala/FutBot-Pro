@@ -579,6 +579,10 @@
                                             <span style="color: var(--text-secondary);">Current Regime:</span>
                                             <span id="currentRegime" style="color: var(--text-primary); font-weight: 500;">-</span>
                                         </div>
+                                        <div style="padding: 8px; background: var(--card-bg); border-radius: 4px; display: flex; justify-content: space-between;">
+                                            <span style="color: var(--text-secondary);">Last Bar:</span>
+                                            <span id="lastBarTime" style="color: var(--text-primary); font-weight: 500; font-size: 11px;">-</span>
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -789,6 +793,29 @@
                     document.getElementById('currentRegime').textContent = regimeText;
                     document.getElementById('currentRegime').style.color = regime.confidence > 0.7 ? '#10b981' : '#f59e0b';
                 }
+                
+                // Update Last Bar Timestamp
+                if (liveStatus && liveStatus.last_bar_time) {
+                    const lastBarDate = new Date(liveStatus.last_bar_time);
+                    const formattedTime = lastBarDate.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    });
+                    document.getElementById('lastBarTime').textContent = formattedTime;
+                } else if (health && health.last_update) {
+                    const lastUpdate = new Date(health.last_update);
+                    const formattedTime = lastUpdate.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                    });
+                    document.getElementById('lastBarTime').textContent = formattedTime;
+                }
 
                 // Update Trade Setups
                 updateTradeSetups(regime, agents, liveStatus);
@@ -816,35 +843,76 @@
             if (!regime || !regime.is_valid) {
                 let message = 'Insufficient bars for analysis';
                 let suggestion = '';
+                let statusColor = '#9ca3af'; // Gray for NO DATA
+                let statusLabel = 'NO DATA';
+                let progressColor = '#9ca3af';
+                let etaText = '';
                 
                 if (barCount > 0) {
                     message = `Need ${barsNeeded} more bars (${barCount}/${requiredBars})`;
                     suggestion = 'Continue simulation to collect more bars';
+                    statusColor = '#f59e0b'; // Orange for COLLECTING
+                    statusLabel = 'COLLECTING';
+                    progressColor = '#f59e0b';
+                    
+                    // Calculate ETA if simulation is running
+                    if (liveStatus && liveStatus.is_running && liveStatus.duration_seconds) {
+                        const barsPerSecond = barCount / liveStatus.duration_seconds;
+                        if (barsPerSecond > 0) {
+                            const etaSeconds = Math.ceil(barsNeeded / barsPerSecond);
+                            if (etaSeconds < 60) {
+                                etaText = `Ready in ~${etaSeconds} seconds`;
+                            } else {
+                                const etaMinutes = Math.ceil(etaSeconds / 60);
+                                etaText = `Ready in ~${etaMinutes} minute${etaMinutes > 1 ? 's' : ''}`;
+                            }
+                        }
+                    } else if (liveStatus && liveStatus.replay_speed) {
+                        // Estimate based on replay speed (600x = ~50-80 bars/sec)
+                        const estimatedBarsPerSecond = Math.min(80, liveStatus.replay_speed / 7.5);
+                        const etaSeconds = Math.ceil(barsNeeded / estimatedBarsPerSecond);
+                        if (etaSeconds < 60) {
+                            etaText = `Ready in ~${etaSeconds} seconds at ${liveStatus.replay_speed}x speed`;
+                        } else {
+                            const etaMinutes = Math.ceil(etaSeconds / 60);
+                            etaText = `Ready in ~${etaMinutes} minute${etaMinutes > 1 ? 's' : ''} at ${liveStatus.replay_speed}x speed`;
+                        }
+                    }
                 } else {
                     message = 'No bars collected yet';
                     suggestion = 'Start a simulation or collect historical data';
                 }
                 
                 setupsDiv.innerHTML = `
-                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #f59e0b;">
+                    <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${statusColor};">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <div>
                                 <div style="font-weight: 600; color: var(--text-primary);">Waiting for Data</div>
                                 <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${message}</div>
                             </div>
-                            <div style="padding: 4px 8px; background: #f59e0b20; border-radius: 4px; font-size: 11px; color: #f59e0b; font-weight: 600;">
-                                ${barCount > 0 ? 'COLLECTING' : 'NO DATA'}
+                            <div style="padding: 4px 8px; background: ${statusColor}20; border-radius: 4px; font-size: 11px; color: ${statusColor}; font-weight: 600;">
+                                ${statusLabel}
                             </div>
                         </div>
                         <div style="margin-top: 8px; padding: 8px; background: #1f2937; border-radius: 4px; font-size: 11px; color: var(--text-secondary);">
-                            <div style="margin-bottom: 4px;"><strong>Progress:</strong> ${barCount}/${requiredBars} bars</div>
+                            <div style="margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                                <span><strong>Progress:</strong> ${barCount}/${requiredBars} bars</span>
+                                ${etaText ? `<span style="color: ${statusColor}; font-weight: 600;">${etaText}</span>` : ''}
+                            </div>
                             <div style="width: 100%; height: 4px; background: #374151; border-radius: 2px; overflow: hidden; margin: 4px 0;">
-                                <div style="width: ${Math.min(100, (barCount / requiredBars) * 100)}%; height: 100%; background: #f59e0b; transition: width 0.3s;"></div>
+                                <div style="width: ${Math.min(100, (barCount / requiredBars) * 100)}%; height: 100%; background: ${progressColor}; transition: width 0.3s;"></div>
                             </div>
                             <div style="margin-top: 6px; color: #9ca3af;">
                                 <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
                                 ${suggestion}
                             </div>
+                            ${barCount === 0 ? `
+                            <div style="margin-top: 8px;">
+                                <button onclick="autoStartDataCollection()" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600;">
+                                    <i class="fas fa-play" style="margin-right: 4px;"></i>Collect Data & Analyze
+                                </button>
+                            </div>
+                            ` : ''}
                         </div>
                     </div>
                 `;
@@ -864,25 +932,28 @@
             if (confidence > 0.7 && (bias === 'BULLISH' || bias === 'BEARISH')) {
                 if (regimeType === 'TREND' || regimeType === 'EXPANSION') {
                     setupQuality = 'GOOD';
-                    setupColor = '#10b981';
+                    setupColor = '#10b981'; // Green for READY/GOOD
                     setupLabel = 'GOOD SETUP';
                     setupReason = `Strong ${bias.toLowerCase()} signal in ${regimeType.toLowerCase()} regime`;
                 }
             } else if (confidence < 0.5 || regimeType === 'COMPRESSION') {
                 setupQuality = 'BAD';
-                setupColor = '#ef4444';
+                setupColor = '#ef4444'; // Red for AVOID/BAD
                 setupLabel = 'AVOID';
                 setupReason = `Low confidence (${(confidence * 100).toFixed(0)}%) or choppy market`;
             } else {
                 setupQuality = 'NEUTRAL';
-                setupColor = '#f59e0b';
+                setupColor = '#f59e0b'; // Orange for CAUTION
                 setupLabel = 'CAUTION';
                 setupReason = `Moderate confidence (${(confidence * 100).toFixed(0)}%) - wait for better setup`;
             }
+            
+            // If we have valid regime, status is READY (green)
+            const readyStatusColor = '#10b981';
 
             setupsDiv.innerHTML = `
                 <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${setupColor};">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <div>
                             <div style="font-weight: 600; color: var(--text-primary);">${setupLabel}</div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${setupReason}</div>
@@ -890,8 +961,13 @@
                                 Regime: ${regimeType} | Bias: ${bias} | Confidence: ${(confidence * 100).toFixed(0)}%
                             </div>
                         </div>
-                        <div style="padding: 4px 8px; background: ${setupColor}20; border-radius: 4px; font-size: 11px; color: ${setupColor}; font-weight: 600;">
-                            ${setupLabel}
+                        <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end;">
+                            <div style="padding: 4px 8px; background: ${readyStatusColor}20; border-radius: 4px; font-size: 11px; color: ${readyStatusColor}; font-weight: 600;">
+                                READY
+                            </div>
+                            <div style="padding: 4px 8px; background: ${setupColor}20; border-radius: 4px; font-size: 11px; color: ${setupColor}; font-weight: 600;">
+                                ${setupLabel}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1096,6 +1172,71 @@
             document.addEventListener('DOMContentLoaded', initDateTimeInputs);
         } else {
             initDateTimeInputs();
+        }
+
+        // --- Auto-Start Data Collection ---
+        async function autoStartDataCollection() {
+            const btn = document.getElementById('btnSim');
+            if (!btn) return;
+            
+            // Get default values
+            const symbolSelect = document.getElementById('simSymbol');
+            const selectedSymbol = symbolSelect ? symbolSelect.value : 'SPY';
+            
+            const startTimeInput = document.getElementById('simStartTime');
+            const endTimeInput = document.getElementById('simEndTime');
+            
+            // Set time window to last 3 months
+            const now = new Date();
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(now.getMonth() - 3);
+            
+            const formatDateTimeLocal = (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            };
+            
+            const defaultStart = new Date(threeMonthsAgo);
+            defaultStart.setHours(9, 30, 0, 0);
+            const defaultEnd = new Date(now);
+            
+            if (startTimeInput) startTimeInput.value = formatDateTimeLocal(defaultStart);
+            if (endTimeInput) endTimeInput.value = formatDateTimeLocal(defaultEnd);
+            
+            // Show toast
+            showToast('Starting data collection simulation...', 'success');
+            
+            // Auto-start simulation with optimal settings
+            const payload = {
+                symbols: [selectedSymbol],
+                broker_type: "cached",
+                offline_mode: true,
+                fixed_investment_amount: 10000.0,
+                replay_speed: 600.0, // Fast speed
+                start_time: formatDateTimeLocal(defaultStart) + ':00',
+                end_time: formatDateTimeLocal(defaultEnd) + ':00'
+            };
+            
+            try {
+                const res = await fetch(`${API_BASE}/live/start`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('Data collection started! Will auto-stop at 30+ bars.', 'success');
+                    updateData();
+                } else {
+                    throw new Error(data.detail || 'Failed to start');
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
         }
 
         // --- API Controls ---

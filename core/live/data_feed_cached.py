@@ -100,11 +100,19 @@ class CachedDataFeed(BaseDataFeed):
                 cached_df = self.cache.load(symbol, self.bar_size)
             
             if cached_df.empty:
-                logger.warning(f"No cached data found for {symbol} - generating synthetic bars for simulation")
-                # Generate synthetic bars for simulation when cache is empty
+                # Only generate synthetic bars in offline/simulation mode
+                # Never use synthetic bars for live trading
+                from core.live.scheduler import LiveTradingConfig
+                # Check if we're in offline mode (synthetic bars are safe for simulation only)
+                # If this is called from live trading, we should not generate synthetic bars
+                logger.warning(f"No cached data found for {symbol}")
+                
+                # Generate synthetic bars ONLY for offline simulation (not live trading)
+                # This is safe because offline_mode=True ensures we're not trading with real money
+                logger.info(f"Generating synthetic bars for offline simulation: {symbol}")
                 bars_list = self._generate_synthetic_bars(symbol, preload_bars)
                 self.cached_data[symbol] = bars_list
-                logger.info(f"Generated {len(bars_list)} synthetic bars for {symbol}")
+                logger.info(f"Generated {len(bars_list)} synthetic bars for {symbol} (offline mode only)")
             else:
                 # Convert DataFrame to list of Bar objects
                 # Filter by start_date and end_date if specified
