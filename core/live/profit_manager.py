@@ -20,8 +20,8 @@ class ProfitConfig:
     """Configuration for profit-taking logic."""
     
     # Profit targets
-    take_profit_pct: float = 30.0  # Take profit at 30% gain
-    stop_loss_pct: float = 20.0  # Stop loss at 20% loss
+    take_profit_pct: float = 15.0  # Take profit at 15% gain
+    stop_loss_pct: float = 10.0  # Stop loss at 10% loss
     trailing_stop_pct: float = 1.5  # Trailing stop at 1.5% from peak
     
     # Exit conditions

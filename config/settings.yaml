@@ -61,8 +61,8 @@ symbols:
   QQQ:
     asset_type: equity
     risk_per_trade_pct: 1.0
-    take_profit_pct: 0.30
-    stop_loss_pct: 0.20
+    take_profit_pct: 0.15  # 15% profit target
+    stop_loss_pct: 0.10  # 10% stop loss
     trailing_stop_pct: 1.5
     min_hold_bars: 5
     max_hold_bars: 200
@@ -73,8 +73,8 @@ symbols:
   SPY:
     asset_type: equity
     risk_per_trade_pct: 1.0
-    take_profit_pct: 0.30
-    stop_loss_pct: 0.20
+    take_profit_pct: 0.15  # 15% profit target
+    stop_loss_pct: 0.10  # 10% stop loss
     trailing_stop_pct: 1.5
     min_hold_bars: 5
     max_hold_bars: 200
