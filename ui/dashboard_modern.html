@@ -431,30 +431,19 @@
             </div>
             <div class="header-controls">
                 <!-- Simulation Controls (shown when Simulate button is visible) -->
-                <select id="simStartDate" 
+                <span style="color: var(--text-secondary); margin-right: 8px; font-size: 13px;">SPY & QQQ</span>
+                <select id="simStartDateTime" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               width: 140px; display: inline-block;"
-                        title="Select start date">
-                </select>
-                <select id="simStartTime" 
-                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
-                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               width: 100px; display: inline-block;"
-                        title="Select start time">
+                               width: 200px; display: inline-block;"
+                        title="Select start date and time">
                 </select>
                 <span style="color: var(--text-secondary); margin-right: 8px;">to</span>
-                <select id="simEndDate" 
+                <select id="simEndDateTime" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
                                background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               width: 140px; display: inline-block;"
-                        title="Select end date">
-                </select>
-                <select id="simEndTime" 
-                        style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
-                               background: var(--card-bg); color: var(--text-primary); border-radius: 4px;
-                               width: 100px; display: inline-block;"
-                        title="Select end time">
+                               width: 200px; display: inline-block;"
+                        title="Select end date and time">
                 </select>
                 <select id="replaySpeed" 
                         style="padding: 8px 12px; margin-right: 8px; border: 1px solid var(--border-color); 
@@ -1644,74 +1633,68 @@
             setTimeout(() => t.className = 'toast', 3000);
         }
 
-        // --- Initialize Date/Time Dropdowns ---
+        // --- Initialize Combined Date/Time Dropdowns ---
         function initDateTimeDropdowns() {
-            const startDateSelect = document.getElementById('simStartDate');
-            const startTimeSelect = document.getElementById('simStartTime');
-            const endDateSelect = document.getElementById('simEndDate');
-            const endTimeSelect = document.getElementById('simEndTime');
+            const startDateTimeSelect = document.getElementById('simStartDateTime');
+            const endDateTimeSelect = document.getElementById('simEndDateTime');
             
-            if (!startDateSelect || !startTimeSelect || !endDateSelect || !endTimeSelect) {
+            if (!startDateTimeSelect || !endDateTimeSelect) {
                 console.warn('Date/Time dropdowns not found');
                 return;
             }
             
-            // Generate date options: Last 3 months of weekdays
+            // Generate combined date+time options: Last 3 months of weekdays with market hours
             const now = new Date();
-            const dates = [];
+            const dateTimeOptions = [];
+            
+            // Market hours
+            const marketTimes = [
+                { value: '09:30', display: '9:30 AM' },
+                { value: '10:00', display: '10:00 AM' },
+                { value: '11:00', display: '11:00 AM' },
+                { value: '12:00', display: '12:00 PM' },
+                { value: '13:00', display: '1:00 PM' },
+                { value: '14:00', display: '2:00 PM' },
+                { value: '15:00', display: '3:00 PM' },
+                { value: '16:00', display: '4:00 PM' }
+            ];
+            
+            // Generate dates: Last 3 months of weekdays
             for (let i = 0; i < 90; i++) {
                 const date = new Date(now);
                 date.setDate(date.getDate() - i);
                 // Only include weekdays (Mon-Fri)
                 if (date.getDay() >= 1 && date.getDay() <= 5) {
                     const dateStr = date.toISOString().split('T')[0];
-                    const displayStr = date.toLocaleDateString('en-US', { 
+                    const dateDisplay = date.toLocaleDateString('en-US', { 
                         weekday: 'short', 
                         month: 'short', 
                         day: 'numeric',
                         year: 'numeric' 
                     });
-                    dates.push({ value: dateStr, display: displayStr, date: new Date(date) });
+                    
+                    // Add each time option for this date
+                    marketTimes.forEach(time => {
+                        const option = {
+                            value: `${dateStr}T${time.value}:00`,
+                            display: `${dateDisplay} ${time.display}`
+                        };
+                        dateTimeOptions.push(option);
+                    });
                 }
             }
             
-            // Populate date dropdowns
-            dates.forEach(d => {
+            // Populate dropdowns
+            dateTimeOptions.forEach(opt => {
                 const option1 = document.createElement('option');
-                option1.value = d.value;
-                option1.textContent = d.display;
-                startDateSelect.appendChild(option1);
+                option1.value = opt.value;
+                option1.textContent = opt.display;
+                startDateTimeSelect.appendChild(option1);
                 
                 const option2 = document.createElement('option');
-                option2.value = d.value;
-                option2.textContent = d.display;
-                endDateSelect.appendChild(option2);
-            });
-            
-            // Generate time options (market hours: 9:30 AM - 4:00 PM ET)
-            const times = [];
-            // Market open times
-            times.push({ value: '09:30', display: '9:30 AM' });
-            times.push({ value: '10:00', display: '10:00 AM' });
-            times.push({ value: '11:00', display: '11:00 AM' });
-            times.push({ value: '12:00', display: '12:00 PM' });
-            times.push({ value: '13:00', display: '1:00 PM' });
-            times.push({ value: '14:00', display: '2:00 PM' });
-            times.push({ value: '15:00', display: '3:00 PM' });
-            // Market close time
-            times.push({ value: '16:00', display: '4:00 PM' });
-            
-            // Populate time dropdowns
-            times.forEach(t => {
-                const option1 = document.createElement('option');
-                option1.value = t.value;
-                option1.textContent = t.display;
-                startTimeSelect.appendChild(option1);
-                
-                const option2 = document.createElement('option');
-                option2.value = t.value;
-                option2.textContent = t.display;
-                endTimeSelect.appendChild(option2);
+                option2.value = opt.value;
+                option2.textContent = opt.display;
+                endDateTimeSelect.appendChild(option2);
             });
             
             // Set default values: Start = 3 months ago at 9:30 AM, End = today at 4:00 PM
@@ -1722,6 +1705,7 @@
                 threeMonthsAgo.setDate(threeMonthsAgo.getDate() - 1);
             }
             const defaultStartDate = threeMonthsAgo.toISOString().split('T')[0];
+            const defaultStartValue = `${defaultStartDate}T09:30:00`;
             
             // Find today or last weekday
             const defaultEndDate = new Date(now);
@@ -1729,14 +1713,13 @@
                 defaultEndDate.setDate(defaultEndDate.getDate() - 1);
             }
             const defaultEndDateStr = defaultEndDate.toISOString().split('T')[0];
+            const defaultEndValue = `${defaultEndDateStr}T16:00:00`;
             
             // Set defaults
-            startDateSelect.value = defaultStartDate;
-            startTimeSelect.value = '09:30';
-            endDateSelect.value = defaultEndDateStr;
-            endTimeSelect.value = '16:00';
+            startDateTimeSelect.value = defaultStartValue;
+            endDateTimeSelect.value = defaultEndValue;
             
-            console.log('Date/Time dropdowns initialized');
+            console.log('Combined Date/Time dropdowns initialized');
         }
         
         // Initialize on page load
@@ -1816,27 +1799,20 @@
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Starting...';
             
-            // Get values from dropdowns
-            const startDateSelect = document.getElementById('simStartDate');
-            const startTimeSelect = document.getElementById('simStartTime');
-            const endDateSelect = document.getElementById('simEndDate');
-            const endTimeSelect = document.getElementById('simEndTime');
+            // Get values from combined date/time dropdowns
+            const startDateTimeSelect = document.getElementById('simStartDateTime');
+            const endDateTimeSelect = document.getElementById('simEndDateTime');
             
-            if (!startDateSelect || !startTimeSelect || !endDateSelect || !endTimeSelect) {
+            if (!startDateTimeSelect || !endDateTimeSelect) {
                 showToast('Date/Time dropdowns not found', 'error');
                 btn.disabled = false;
                 btn.innerHTML = originalText;
                 return;
             }
             
-            const startDate = startDateSelect.value;
-            const startTime = startTimeSelect.value;
-            const endDate = endDateSelect.value;
-            const endTime = endTimeSelect.value;
-            
-            // Format for API (YYYY-MM-DDTHH:MM:SS)
-            const startDateTime = `${startDate}T${startTime}:00`;
-            const endDateTime = `${endDate}T${endTime}:00`;
+            // Values are already in format YYYY-MM-DDTHH:MM:00
+            const startDateTime = startDateTimeSelect.value;
+            const endDateTime = endDateTimeSelect.value;
             
             // Validate: end_time must be after start_time
             const start = new Date(startDateTime);
