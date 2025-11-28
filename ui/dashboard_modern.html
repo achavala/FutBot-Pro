@@ -10,6 +10,13 @@
     <meta name="apple-mobile-web-app-title" content="FutBot Pro">
     <title>FutBot Pro</title>
     
+    <!-- CRITICAL: This script MUST execute - if you don't see this log, scripts are blocked -->
+    <script>
+        console.log('🚀 EARLY SCRIPT: This should appear FIRST in console!');
+        console.log('🚀 Script execution test:', new Date().toISOString());
+        console.log('🚀 Window object available:', typeof window !== 'undefined');
+    </script>
+    
     <!-- Force cache clear on every load -->
     <script>
         // Clear all caches on page load
