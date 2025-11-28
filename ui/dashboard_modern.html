@@ -1073,12 +1073,12 @@
 
         async function updateStatusView() {
             try {
-                // Fetch all status data
+                // Fetch all status data with fallbacks
                 const [health, regime, agents, liveStatus] = await Promise.all([
-                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/agents`).then(r => r.json()).catch(() => null),
-                    fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => null)
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => ({ is_running: false, is_paused: false })),
+                    fetch(`${API_BASE}/regime`).then(r => r.json()).catch(() => ({ regime_type: 'COMPRESSION', confidence: 0.0 })),
+                    fetch(`${API_BASE}/agents`).then(r => r.json()).catch(() => ({})),
+                    fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => ({ is_running: false, bar_count: 0 }))
                 ]);
 
                 // Update Background Activity
