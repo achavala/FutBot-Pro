@@ -1690,6 +1690,65 @@
             }
         }
 
+        // --- Market Status Check & Auto-Start ---
+        let marketStatus = { is_open: false };
+        let autoStartAttempted = false;
+        
+        async function checkMarketStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/market/status`);
+                marketStatus = await res.json();
+                
+                // Hide simulation controls during trading hours (no market status display)
+                const simControls = document.querySelectorAll('#simSymbol, #simStartTime, #simEndTime, #replaySpeed, #btnSim');
+                
+                if (marketStatus.is_open) {
+                    // Market is open - hide simulation controls completely
+                    simControls.forEach(ctrl => {
+                        if (ctrl) ctrl.style.display = 'none';
+                    });
+                    
+                    // Auto-start live trading if not already running
+                    if (!autoStartAttempted) {
+                        autoStartAttempted = true;
+                        setTimeout(async () => {
+                            try {
+                                const liveStatus = await fetch(`${API_BASE}/live/status`).then(r => r.json()).catch(() => ({ active: false, is_running: false }));
+                                if (!liveStatus.active && !liveStatus.is_running) {
+                                    // Auto-start with SPY and QQQ
+                                    const autoStartPayload = {
+                                        symbols: ["SPY", "QQQ"],
+                                        broker_type: "paper",  // Use paper trading for safety
+                                        offline_mode: false,
+                                        fixed_investment_amount: 10000.0
+                                    };
+                                    const res = await fetch(`${API_BASE}/live/start`, {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify(autoStartPayload)
+                                    });
+                                    if (res.ok) {
+                                        console.log('✅ Auto-started live trading with SPY and QQQ');
+                                        showToast('Auto-trading started: SPY & QQQ', 'success');
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Auto-start failed:', e);
+                            }
+                        }, 3000); // Wait 3 seconds after page load
+                    }
+                } else {
+                    // Market closed - show simulation controls
+                    simControls.forEach(ctrl => {
+                        if (ctrl) ctrl.style.display = 'inline-block';
+                    });
+                    autoStartAttempted = false; // Reset for next market open
+                }
+            } catch (e) {
+                console.error('Error checking market status:', e);
+            }
+        }
+
         // --- Init ---
         setInterval(updateData, 2000);
         setInterval(checkMarketStatus, 60000); // Check market status every minute

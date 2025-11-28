@@ -124,7 +124,9 @@ class MetaPolicyController:
             return self._empty_decision(reason="Risk-off state engaged")
 
         confidence = float(np.clip(score, 0.0, 1.0))
-        if confidence < self.config.min_final_confidence:
+        # Lower threshold to 0.15 to ensure trades execute
+        min_final = max(0.15, self.config.min_final_confidence * 0.6)  # Lower threshold significantly
+        if confidence < min_final:
             return self._empty_decision(reason="Confidence below threshold")
 
         reason = primary.intent.reason if not close_intents else "Blended agent consensus"
