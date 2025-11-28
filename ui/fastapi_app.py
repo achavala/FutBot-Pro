@@ -708,19 +708,78 @@ async def start_live_trading(request: LiveStartRequest):
                 # Use start_time/end_time if provided (more precise)
                 from datetime import datetime
                 try:
+                    # datetime-local inputs are in user's local time, but for US markets (SPY, QQQ)
+                    # we should interpret them as Eastern Time (EST/EDT)
+                    # Check if symbols are US market symbols
+                    us_market_symbols = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META']
+                    is_us_market = any(s in request.symbols for s in us_market_symbols)
+                    
+                    # Use zoneinfo (Python 3.9+) or fallback to pytz
+                    try:
+                        from zoneinfo import ZoneInfo
+                        def get_eastern_tz():
+                            return ZoneInfo('US/Eastern')
+                    except ImportError:
+                        # Fallback for Python < 3.9
+                        import pytz
+                        def get_eastern_tz():
+                            return pytz.timezone('US/Eastern')
+                    
                     if request.start_time:
-                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS
-                        start_datetime_obj = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM
+                        start_str = request.start_time
+                        if 'T' in start_str and len(start_str.split('T')[1]) <= 5:
+                            # Add seconds if missing (datetime-local format)
+                            start_str = start_str + ':00'
+                        
+                        start_datetime_obj = datetime.fromisoformat(start_str)
+                        
+                        # If no timezone, assume US Eastern Time for US market symbols
                         if start_datetime_obj.tzinfo is None:
-                            start_datetime_obj = start_datetime_obj.replace(tzinfo=timezone.utc)
-                        logger.info(f"🔵 Starting from datetime: {start_datetime_obj}")
+                            if is_us_market:
+                                # Convert to US Eastern Time, then to UTC
+                                eastern = get_eastern_tz()
+                                # Localize naive datetime to Eastern time
+                                if hasattr(eastern, 'localize'):
+                                    # pytz style
+                                    start_datetime_obj = eastern.localize(start_datetime_obj)
+                                else:
+                                    # zoneinfo style (Python 3.9+)
+                                    start_datetime_obj = start_datetime_obj.replace(tzinfo=eastern)
+                                start_datetime_obj = start_datetime_obj.astimezone(timezone.utc)
+                            else:
+                                # For non-US symbols, assume UTC
+                                start_datetime_obj = start_datetime_obj.replace(tzinfo=timezone.utc)
+                        
+                        logger.info(f"🔵 Starting from datetime: {start_datetime_obj} (UTC) - interpreted as US Eastern if US market symbol")
                     
                     if request.end_time:
-                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS
-                        end_datetime_obj = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+                        # Parse ISO format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DDTHH:MM
+                        end_str = request.end_time
+                        if 'T' in end_str and len(end_str.split('T')[1]) <= 5:
+                            # Add seconds if missing (datetime-local format)
+                            end_str = end_str + ':00'
+                        
+                        end_datetime_obj = datetime.fromisoformat(end_str)
+                        
+                        # If no timezone, assume US Eastern Time for US market symbols
                         if end_datetime_obj.tzinfo is None:
-                            end_datetime_obj = end_datetime_obj.replace(tzinfo=timezone.utc)
-                        logger.info(f"🔵 Ending at datetime: {end_datetime_obj}")
+                            if is_us_market:
+                                # Convert to US Eastern Time, then to UTC
+                                eastern = get_eastern_tz()
+                                # Localize naive datetime to Eastern time
+                                if hasattr(eastern, 'localize'):
+                                    # pytz style
+                                    end_datetime_obj = eastern.localize(end_datetime_obj)
+                                else:
+                                    # zoneinfo style (Python 3.9+)
+                                    end_datetime_obj = end_datetime_obj.replace(tzinfo=eastern)
+                                end_datetime_obj = end_datetime_obj.astimezone(timezone.utc)
+                            else:
+                                # For non-US symbols, assume UTC
+                                end_datetime_obj = end_datetime_obj.replace(tzinfo=timezone.utc)
+                        
+                        logger.info(f"🔵 Ending at datetime: {end_datetime_obj} (UTC) - interpreted as US Eastern if US market symbol")
                     
                     # Validate: end_time must be after start_time
                     if start_datetime_obj and end_datetime_obj and end_datetime_obj <= start_datetime_obj:
