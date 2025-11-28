@@ -266,6 +266,7 @@ class LiveTradingLoop:
                                         logger.info(f"✅ Generated {len(batch_bars)} synthetic bars for {symbol}")
                             
                             if batch_bars:
+                                logger.info(f"🔵 [LiveLoop] Got {len(batch_bars)} batch bars for {symbol}")
                                 for bar in batch_bars:
                                     if not self.is_running:
                                         break
@@ -292,8 +293,11 @@ class LiveTradingLoop:
                                     
                                     self._process_bar(symbol, bar)
                                     bars_processed += 1
-                                    self.bars_per_symbol[symbol] = self.bars_per_symbol.get(symbol, 0) + 1
+                                    old_count = self.bars_per_symbol.get(symbol, 0)
+                                    self.bars_per_symbol[symbol] = old_count + 1
                                     consecutive_no_bars = 0
+                                    if self.bars_per_symbol[symbol] % 10 == 0:
+                                        logger.info(f"✅ [LiveLoop] {symbol} bars_per_symbol = {self.bars_per_symbol[symbol]} (processed bar #{bars_processed})")
                                 
                                 # Log progress every 100 bars (reduces I/O overhead)
                                 if self.bars_per_symbol.get(symbol, 0) % 100 == 0:
