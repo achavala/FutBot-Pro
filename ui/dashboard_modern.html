@@ -619,7 +619,7 @@
                                     <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Comm</th></tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td colspan="6" style="text-align: center; padding: 20px;">Loading...</td></tr>
+                                    <tr><td colspan="6" style="text-align: center; padding: 20px; color: #9ca3af;">No recent trades</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1182,6 +1182,16 @@
 
             } catch (e) {
                 console.error('Error updating status view:', e);
+                // Show error message in status view
+                const setupsDiv = document.getElementById('tradeSetups');
+                if (setupsDiv) {
+                    setupsDiv.innerHTML = `
+                        <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid #ef4444;">
+                            <div style="font-weight: 600; color: #ef4444;">Error loading status</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${e.message}</div>
+                        </div>
+                    `;
+                }
             }
         }
 
@@ -2084,8 +2094,17 @@
 
             } catch (e) {
                 console.error("Update failed", e);
+                // Show error message in trades table
+                const tbody = document.querySelector('#wbPositionsTable tbody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;">Error loading data. Please refresh.</td></tr>';
+                }
             }
         }
+        
+        // Call updateData immediately and then every 2 seconds
+        updateData();
+        setInterval(updateData, 2000);
 
         function updateCharts(stats, regime, health) {
             // Main Equity Chart
