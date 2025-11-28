@@ -846,7 +846,19 @@
             const barsNeeded = Math.max(0, requiredBars - barCount);
 
             // Get current evaluation time/bar (CST timezone)
-            const currentBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            // If last_bar_time is old (>5 min) and bot is running, show current time
+            const now = new Date();
+            let currentBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            
+            if (currentBarTime && liveStatus?.is_running) {
+                const lastBarDate = new Date(currentBarTime);
+                const timeDiff = (now - lastBarDate) / 1000 / 60; // minutes ago
+                // If last bar is more than 5 minutes old, show current time
+                if (timeDiff > 5) {
+                    currentBarTime = now.toISOString(); // Use current time
+                }
+            }
+            
             const currentBarTimeFormatted = currentBarTime 
                 ? new Date(currentBarTime).toLocaleString('en-US', {
                     timeZone: 'America/Chicago',
@@ -857,7 +869,15 @@
                     second: '2-digit',
                     hour12: true
                   }) + ' CST'
-                : 'N/A';
+                : now.toLocaleString('en-US', {
+                    timeZone: 'America/Chicago',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                  }) + ' CST';
             
             // If we have enough bars, treat regime as valid even if is_valid is false
             // (backend should force-validate, but UI can also handle this)
@@ -1035,7 +1055,19 @@
             const readyStatusColor = '#10b981';
 
             // Get current evaluation time (CST timezone)
-            const evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            // If last_bar_time is old (>5 min) and bot is running, show current time
+            const now = new Date();
+            let evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            
+            if (evalBarTime && liveStatus?.is_running) {
+                const lastBarDate = new Date(evalBarTime);
+                const timeDiff = (now - lastBarDate) / 1000 / 60; // minutes ago
+                // If last bar is more than 5 minutes old, show current time
+                if (timeDiff > 5) {
+                    evalBarTime = now.toISOString(); // Use current time
+                }
+            }
+            
             const evalTimeFormatted = evalBarTime 
                 ? new Date(evalBarTime).toLocaleString('en-US', {
                     timeZone: 'America/Chicago',
@@ -1046,7 +1078,15 @@
                     second: '2-digit',
                     hour12: true
                   }) + ' CST'
-                : 'N/A';
+                : now.toLocaleString('en-US', {
+                    timeZone: 'America/Chicago',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                  }) + ' CST';
             
             setupsDiv.innerHTML = `
                 <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${setupColor};">
