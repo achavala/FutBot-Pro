@@ -794,11 +794,41 @@
                     document.getElementById('currentRegime').style.color = regime.confidence > 0.7 ? '#10b981' : '#f59e0b';
                 }
                 
-                // Update Last Bar Timestamp (CST timezone)
+                // Update Last Bar Timestamp (show current time if bars are stuck or no last_bar_time)
+                const currentTimeForDisplay = new Date();
+                let timeToShow = null;
+                
                 if (liveStatus && liveStatus.last_bar_time) {
                     const lastBarDate = new Date(liveStatus.last_bar_time);
-                    // Convert to CST (America/Chicago timezone)
-                    const formattedTime = lastBarDate.toLocaleString('en-US', {
+                    const timeDiff = (currentTimeForDisplay - lastBarDate) / 1000 / 60; // minutes ago
+                    
+                    // If last bar is more than 5 minutes old and bot is running, show current time
+                    if (liveStatus.is_running && timeDiff > 5) {
+                        // Bars are stuck - show current time with "Live" indicator
+                        timeToShow = currentTimeForDisplay.toLocaleString('en-US', {
+                            timeZone: 'America/Chicago',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: true
+                        }) + ' CST (Live - Waiting for bars)';
+                    } else {
+                        // Show last bar time
+                        timeToShow = lastBarDate.toLocaleString('en-US', {
+                            timeZone: 'America/Chicago',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: true
+                        }) + ' CST';
+                    }
+                } else if (liveStatus && liveStatus.is_running) {
+                    // Bot is running but no last_bar_time - show current time
+                    timeToShow = currentTimeForDisplay.toLocaleString('en-US', {
                         timeZone: 'America/Chicago',
                         month: 'short',
                         day: 'numeric',
@@ -806,11 +836,10 @@
                         minute: '2-digit',
                         second: '2-digit',
                         hour12: true
-                    }) + ' CST';
-                    document.getElementById('lastBarTime').textContent = formattedTime;
+                    }) + ' CST (Live)';
                 } else if (health && health.last_update) {
                     const lastUpdate = new Date(health.last_update);
-                    const formattedTime = lastUpdate.toLocaleString('en-US', {
+                    timeToShow = lastUpdate.toLocaleString('en-US', {
                         timeZone: 'America/Chicago',
                         month: 'short',
                         day: 'numeric',
@@ -819,7 +848,21 @@
                         second: '2-digit',
                         hour12: true
                     }) + ' CST';
-                    document.getElementById('lastBarTime').textContent = formattedTime;
+                } else {
+                    // Fallback to current time
+                    timeToShow = currentTimeForDisplay.toLocaleString('en-US', {
+                        timeZone: 'America/Chicago',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                    }) + ' CST';
+                }
+                
+                if (timeToShow) {
+                    document.getElementById('lastBarTime').textContent = timeToShow;
                 }
 
                 // Update Trade Setups
