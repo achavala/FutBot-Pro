@@ -840,6 +840,19 @@
             const requiredBars = 30;
             const barsNeeded = Math.max(0, requiredBars - barCount);
 
+            // Get current evaluation time/bar
+            const currentBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            const currentBarTimeFormatted = currentBarTime 
+                ? new Date(currentBarTime).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                  })
+                : 'N/A';
+            
             if (!regime || !regime.is_valid) {
                 let message = 'Insufficient bars for analysis';
                 let suggestion = '';
@@ -847,8 +860,19 @@
                 let statusLabel = 'NO DATA';
                 let progressColor = '#9ca3af';
                 let etaText = '';
+                let diagnosticInfo = '';
                 
-                if (barCount > 0) {
+                if (barCount >= requiredBars) {
+                    // Have enough bars but regime is invalid - show diagnostic
+                    message = `Analysis in progress (${barCount} bars available)`;
+                    suggestion = 'Regime engine processing...';
+                    statusColor = '#f59e0b'; // Orange - processing
+                    statusLabel = 'PROCESSING';
+                    progressColor = '#f59e0b';
+                    diagnosticInfo = regime 
+                        ? `Regime: ${regime.regime_type || 'N/A'}, Confidence: ${((regime.confidence || 0) * 100).toFixed(1)}%`
+                        : 'Waiting for regime classification';
+                } else if (barCount > 0) {
                     message = `Need ${barsNeeded} more bars (${barCount}/${requiredBars})`;
                     suggestion = 'Continue simulation to collect more bars';
                     statusColor = '#f59e0b'; // Orange for COLLECTING
@@ -883,6 +907,21 @@
                     suggestion = 'Start a simulation or collect historical data';
                 }
                 
+                // Show diagnostic info if we have bars but regime is invalid
+                if (barCount >= requiredBars && (!regime || !regime.is_valid)) {
+                    diagnosticInfo = `
+                        <div style="margin-top: 6px; padding: 6px; background: #7c2d12; border-radius: 4px; border-left: 2px solid #ef4444;">
+                            <div style="font-size: 10px; color: #fca5a5; margin-bottom: 4px;">
+                                <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
+                                <strong>Diagnostic:</strong> ${barCount} bars available but regime invalid
+                            </div>
+                            <div style="font-size: 10px; color: #fca5a5;">
+                                ${regime ? `Regime: ${regime.regime_type || 'N/A'}, Confidence: ${((regime.confidence || 0) * 100).toFixed(1)}%` : 'No regime signal received'}
+                            </div>
+                        </div>
+                    `;
+                }
+                
                 setupsDiv.innerHTML = `
                     <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${statusColor};">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -901,6 +940,18 @@
                             </div>
                             <div style="width: 100%; height: 4px; background: #374151; border-radius: 2px; overflow: hidden; margin: 4px 0;">
                                 <div style="width: ${Math.min(100, (barCount / requiredBars) * 100)}%; height: 100%; background: ${progressColor}; transition: width 0.3s;"></div>
+                            </div>
+                            <div style="margin-top: 6px; padding: 6px; background: #111827; border-radius: 4px; border-left: 2px solid ${statusColor};">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                    <span style="color: var(--text-secondary);"><i class="fas fa-clock" style="margin-right: 4px;"></i>Evaluating Bar:</span>
+                                    <span style="color: var(--text-primary); font-weight: 600;">${currentBarTimeFormatted}</span>
+                                </div>
+                                ${liveStatus && liveStatus.bars_per_symbol ? `
+                                <div style="margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
+                                    Bars: ${Object.entries(liveStatus.bars_per_symbol).map(([s, c]) => `${s}: ${c}`).join(', ')}
+                                </div>
+                                ` : ''}
+                                ${diagnosticInfo ? diagnosticInfo : ''}
                             </div>
                             <div style="margin-top: 6px; color: #9ca3af;">
                                 <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
@@ -951,6 +1002,19 @@
             // If we have valid regime, status is READY (green)
             const readyStatusColor = '#10b981';
 
+            // Get current evaluation time
+            const evalBarTime = liveStatus?.last_bar_time || regime?.timestamp || null;
+            const evalTimeFormatted = evalBarTime 
+                ? new Date(evalBarTime).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                  })
+                : 'N/A';
+            
             setupsDiv.innerHTML = `
                 <div style="padding: 12px; background: var(--card-bg); border-radius: 6px; border-left: 3px solid ${setupColor};">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -968,6 +1032,15 @@
                             <div style="padding: 4px 8px; background: ${setupColor}20; border-radius: 4px; font-size: 11px; color: ${setupColor}; font-weight: 600;">
                                 ${setupLabel}
                             </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; padding: 6px; background: #111827; border-radius: 4px; border-left: 2px solid ${setupColor};">
+                        <div style="display: flex; justify-content: space-between; font-size: 10px;">
+                            <span style="color: var(--text-secondary);"><i class="fas fa-clock" style="margin-right: 4px;"></i>Evaluating:</span>
+                            <span style="color: var(--text-primary); font-weight: 600;">${evalTimeFormatted}</span>
+                        </div>
+                        <div style="margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
+                            Bar #${liveStatus?.bar_count || 'N/A'} | ${liveStatus?.bars_per_symbol ? Object.entries(liveStatus.bars_per_symbol).map(([s, c]) => `${s}: ${c}`).join(', ') : ''}
                         </div>
                     </div>
                 </div>
