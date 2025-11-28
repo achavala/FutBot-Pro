@@ -723,6 +723,30 @@ class LiveTradingLoop:
         elif self.config.testing_mode:
             logger.info(f"🔥 [TestingMode] Bypassing advanced risk check - forcing trade execution")
 
+        # FORCE MODE: In testing_mode, force execution even if intent is invalid
+        if self.config.testing_mode and not intent.is_valid:
+            logger.info(f"🔥 [TestingMode] Intent invalid but forcing execution: {intent.reason}")
+            # Create a valid intent with minimum position delta
+            if intent.position_delta == 0:
+                intent = intent.__class__(
+                    position_delta=0.1,  # Force minimum position
+                    confidence=max(0.1, intent.confidence),
+                    primary_agent=intent.primary_agent or "trend_agent",
+                    contributing_agents=intent.contributing_agents or ["trend_agent"],
+                    reason=f"FORCED: {intent.reason}",
+                    is_valid=True,
+                )
+            else:
+                # Make intent valid
+                intent = intent.__class__(
+                    position_delta=intent.position_delta,
+                    confidence=max(0.1, intent.confidence),
+                    primary_agent=intent.primary_agent or "trend_agent",
+                    contributing_agents=intent.contributing_agents or ["trend_agent"],
+                    reason=f"FORCED: {intent.reason}",
+                    is_valid=True,
+                )
+        
         # Execute if valid
         if intent.is_valid and intent.position_delta != 0:
             logger.info(f"✅ [TradeExecution] Executing trade: {symbol}, Delta: {intent.position_delta:.4f}, Reason: {intent.reason}")
