@@ -1722,12 +1722,20 @@
             console.log('Combined Date/Time dropdowns initialized');
         }
         
-        // Initialize on page load
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initDateTimeDropdowns);
-        } else {
+        // Initialize on page load - ensure it runs
+        function initializeOnLoad() {
             initDateTimeDropdowns();
         }
+        
+        // Multiple initialization strategies to ensure it runs
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeOnLoad);
+        } else {
+            initializeOnLoad();
+        }
+        
+        // Also try after a short delay in case elements aren't ready
+        setTimeout(initializeOnLoad, 500);
 
         // --- Auto-Start Historical Simulation ---
         async function autoStartHistoricalSimulation() {
@@ -1969,11 +1977,12 @@
                 // 2. Webull Dashboard Updates
                 const fmt = (n) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(n);
                 
-                // Sidebar Values
-                document.getElementById('wbTotalValue').textContent = fmt(stats.current_capital);
-                document.getElementById('wbCash').textContent = fmt(stats.current_capital);
-                document.getElementById('wbBP').textContent = fmt(stats.current_capital); // Simplified
-                document.getElementById('wbOptBP').textContent = fmt(stats.current_capital);
+                // Sidebar Values - Use initial_capital if current_capital is 0
+                const accountValue = stats.current_capital > 0 ? stats.current_capital : (stats.initial_capital || 100000);
+                document.getElementById('wbTotalValue').textContent = fmt(accountValue);
+                document.getElementById('wbCash').textContent = fmt(accountValue);
+                document.getElementById('wbBP').textContent = fmt(accountValue); // Simplified
+                document.getElementById('wbOptBP').textContent = fmt(accountValue);
                 
                 const pnl = stats.current_capital - stats.initial_capital;
                 const pnlEl = document.getElementById('wbOpenPnL');
