@@ -294,9 +294,17 @@ class CachedDataFeed(BaseDataFeed):
             List of Bar objects (may be less than n if end of data is reached)
         """
         if not self.connected:
+            # SYNTHETIC FALLBACK: Generate bars even if not connected (for testing)
+            if self.synthetic_enabled:
+                logger.info(f"🔄 Not connected but synthetic enabled, generating {n} bars for {symbol}")
+                return self._generate_synthetic_bars(symbol, count=n)
             return []
 
         if symbol not in self.subscribed_symbols:
+            # SYNTHETIC FALLBACK: Generate bars even if not subscribed (for testing)
+            if self.synthetic_enabled:
+                logger.info(f"🔄 Not subscribed but synthetic enabled, generating {n} bars for {symbol}")
+                return self._generate_synthetic_bars(symbol, count=n)
             return []
 
         bars = []
@@ -308,6 +316,19 @@ class CachedDataFeed(BaseDataFeed):
         # If we still need more bars, get from cached data
         if len(bars) < n:
             if symbol not in self.cached_data or len(self.cached_data[symbol]) == 0:
+                # SYNTHETIC FALLBACK: Generate bars if enabled
+                if self.synthetic_enabled:
+                    needed = n - len(bars)
+                    logger.info(f"🔄 No cached data for {symbol}, generating {needed} synthetic bars")
+                    synthetic_bars = self._generate_synthetic_bars(symbol, count=needed)
+                    if synthetic_bars:
+                        # Add to cached_data for persistence
+                        if symbol not in self.cached_data:
+                            self.cached_data[symbol] = []
+                        self.cached_data[symbol].extend(synthetic_bars)
+                        bars.extend(synthetic_bars)
+                        logger.info(f"✅ Generated and added {len(synthetic_bars)} synthetic bars for {symbol}")
+                        return bars
                 return bars  # Return what we have
             
             current_idx = self.current_indices.get(symbol, 0)
