@@ -60,14 +60,14 @@ class TrendAgent(BaseAgent):
                 intent = self._build_intent(TradeDirection.LONG, self.position_size, effective_confidence, "force_trade_testing_mode")
                 return [intent]
         
-        # ULTRA FORCE MODE: If we still have no intent, generate one anyway
-        if price > 0:
-            effective_confidence = 0.1
-            # Alternate between long and short based on bar count to ensure variety
-            direction = TradeDirection.LONG if (int(price * 100) % 2 == 0) else TradeDirection.SHORT
-            intent = self._build_intent(direction, self.position_size, effective_confidence, "ultra_force_trade")
-            logger.info(f"🔥 [TrendAgent] ULTRA FORCE: Generating {direction.value} trade with {effective_confidence}% confidence")
-            return [intent]
+            # ULTRA FORCE MODE: If we still have no intent, generate one anyway
+            if price > 0:
+                effective_confidence = 0.1
+                # Alternate between long and short based on bar count to ensure variety
+                direction = TradeDirection.LONG if (int(price * 100) % 2 == 0) else TradeDirection.SHORT
+                intent = self._build_intent(direction, self.position_size, effective_confidence, "ultra_force_trade")
+                # Note: logger not available in agent, but intent will be logged by scheduler
+                return [intent]
         
         # Original logic for high confidence signals
         if signal.is_trending and signal.confidence >= self.min_confidence:
