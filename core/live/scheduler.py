@@ -336,7 +336,7 @@ class LiveTradingLoop:
                                             bar = synthetic_bars[0]
                                             logger.info(f"✅ Generated synthetic bar for {symbol} in fallback loop")
                                 
-                    if bar:
+                                if bar:
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
                                         # Ensure both timestamps are timezone-aware for comparison
