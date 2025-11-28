@@ -136,6 +136,10 @@ class LiveTradingLoop:
                         # Check if bar already exists (by timestamp)
                         if not any(b.timestamp == bar.timestamp for b in self.bar_history[symbol]):
                             self.bar_history[symbol].append(bar)
+                            # CRITICAL: Process preloaded bars through _process_bar to trigger trades
+                            if self.config.testing_mode:
+                                logger.info(f"🔥 [Preload] Processing preloaded bar for {symbol} to trigger trades")
+                                self._process_bar(symbol, bar)
                     
                     loaded_count = len(self.bar_history[symbol])
                     logger.info(f"Loaded {loaded_count} bars for {symbol} (preloaded: {len(preloaded)})")
