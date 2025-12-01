@@ -8,7 +8,7 @@ from typing import Tuple
 import pandas as pd
 import requests
 
-from core.config import PolygonSettings
+from core.config.polygon import PolygonSettings
 from services.cache import BarCache
 
 
@@ -19,6 +19,8 @@ class PolygonClient:
     def __init__(self, settings: PolygonSettings, cache_path: Path):
         self.settings = settings
         self.cache = BarCache(cache_path)
+        # Massive API base URL (Polygon migrated to Massive)
+        self.base_url = settings.rest_url
 
     def get_historical_bars(
         self,
@@ -31,8 +33,17 @@ class PolygonClient:
         end_ts = int(end.timestamp() * 1000)
 
         cached = self.cache.load(symbol, timeframe, start_ts, end_ts)
-        if not cached.empty and cached.index[0] <= start and cached.index[-1] >= end:
-            return cached
+        if not cached.empty:
+            # Make timezone-aware comparison (cached index might be naive)
+            cached_start = cached.index[0]
+            cached_end = cached.index[-1]
+            # Ensure both are timezone-aware for comparison
+            if cached_start.tzinfo is None:
+                cached_start = cached_start.replace(tzinfo=timezone.utc)
+            if cached_end.tzinfo is None:
+                cached_end = cached_end.replace(tzinfo=timezone.utc)
+            if cached_start <= start and cached_end >= end:
+                return cached
 
         multiplier, timespan = self._parse_timeframe(timeframe)
         bars = self._fetch_polygon_bars(symbol, multiplier, timespan, start, end)
@@ -66,17 +77,24 @@ class PolygonClient:
         start: datetime,
         end: datetime,
     ) -> pd.DataFrame:
+        # Massive API endpoint format: /v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start}/{end}
+        # Note: timespan should be "minute" (not "min") for Massive API
+        timespan_massive = "minute" if timespan == "minute" else timespan
+        
         url = (
-            f"{self.settings.rest_url}/v2/aggs/ticker/{symbol}/range/"
-            f"{multiplier}/{timespan}/{start.date()}/{end.date()}"
+            f"{self.base_url}/v2/aggs/ticker/{symbol}/range/"
+            f"{multiplier}/{timespan_massive}/{start.date()}/{end.date()}"
         )
         params = {
             "adjusted": "true",
             "sort": "asc",
             "limit": 50000,
-            "apiKey": self.settings.api_key,
         }
-        response = requests.get(url, params=params, timeout=30)
+        # Massive API uses Bearer token authentication in headers (not query param)
+        headers = {
+            "Authorization": f"Bearer {self.settings.api_key}"
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         response.raise_for_status()
         payload = response.json()
 
@@ -104,11 +122,27 @@ class PolygonClient:
 
     @staticmethod
     def _parse_timeframe(timeframe: str) -> Tuple[int, str]:
-        if timeframe.endswith("Min"):
-            return int(timeframe.replace("Min", "")), "minute"
-        if timeframe.endswith("Hour"):
-            return int(timeframe.replace("Hour", "")), "hour"
-        if timeframe.endswith("Day"):
-            return int(timeframe.replace("Day", "")), "day"
+        """Parse timeframe string to multiplier and timespan for Polygon API.
+        
+        Supports formats:
+        - "1Min", "5Min", "15Min" (capital M)
+        - "1min", "5min", "15min" (lowercase m)
+        - "1Hour", "1Hour" (capital H)
+        - "1hour", "1hour" (lowercase h)
+        - "1Day", "1Day" (capital D)
+        - "1day", "1day" (lowercase d)
+        """
+        # Normalize to handle both cases
+        timeframe_lower = timeframe.lower()
+        
+        if timeframe_lower.endswith("min"):
+            multiplier_str = timeframe_lower.replace("min", "")
+            return int(multiplier_str), "minute"
+        if timeframe_lower.endswith("hour"):
+            multiplier_str = timeframe_lower.replace("hour", "")
+            return int(multiplier_str), "hour"
+        if timeframe_lower.endswith("day"):
+            multiplier_str = timeframe_lower.replace("day", "")
+            return int(multiplier_str), "day"
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 

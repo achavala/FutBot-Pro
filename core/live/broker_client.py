@@ -29,6 +29,7 @@ class BaseBrokerClient(ABC):
         time_in_force: TimeInForce = TimeInForce.DAY,
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        current_price: Optional[float] = None,  # Optional current price for paper trading
     ) -> Order:
         """Submit an order."""
         pass
@@ -145,6 +146,7 @@ class AlpacaBrokerClient(BaseBrokerClient):
         time_in_force: TimeInForce = TimeInForce.DAY,
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        current_price: Optional[float] = None,  # Ignored for Alpaca (uses broker prices)
     ) -> Order:
         """Submit order to Alpaca (supports both stocks and crypto)."""
         from datetime import datetime
@@ -371,13 +373,20 @@ class PaperBrokerClient(BaseBrokerClient):
         time_in_force: TimeInForce = TimeInForce.DAY,
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        current_price: Optional[float] = None,  # Add current_price parameter
     ) -> Order:
-        """Submit paper order (immediately filled at limit_price or current price)."""
+        """Submit paper order (immediately filled at limit_price or current_price)."""
         from datetime import datetime
         from uuid import uuid4
 
         order_id = str(uuid4())
-        fill_price = limit_price or 100.0  # Default price for paper trading
+        # CRITICAL FIX: Use current_price if provided, otherwise limit_price, otherwise fail
+        if limit_price:
+            fill_price = limit_price
+        elif current_price:
+            fill_price = current_price
+        else:
+            raise ValueError(f"No price provided for {symbol} order - must provide limit_price or current_price")
 
         # Create order
         order = Order(

@@ -17,6 +17,8 @@ class Position:
     entry_time: datetime
     current_price: float
     unrealized_pnl: float = 0.0
+    regime_at_entry: Optional[str] = None  # Regime type at entry (e.g., "TREND", "COMPRESSION")
+    vol_bucket_at_entry: Optional[str] = None  # Volatility level at entry (e.g., "LOW", "MEDIUM", "HIGH")
 
     def update_price(self, price: float) -> None:
         """Update current price and unrealized PnL."""
@@ -43,6 +45,8 @@ class Trade:
     pnl_pct: float
     reason: str
     agent: str
+    regime_at_entry: Optional[str] = None  # Regime type at entry (e.g., "TREND", "COMPRESSION")
+    vol_bucket_at_entry: Optional[str] = None  # Volatility level at entry (e.g., "LOW", "MEDIUM", "HIGH")
 
 
 class PortfolioManager:
@@ -62,7 +66,15 @@ class PortfolioManager:
         if symbol in self.positions:
             self.positions[symbol].update_price(price)
 
-    def add_position(self, symbol: str, quantity: float, price: float, timestamp: datetime) -> None:
+    def add_position(
+        self, 
+        symbol: str, 
+        quantity: float, 
+        price: float, 
+        timestamp: datetime,
+        regime_at_entry: Optional[str] = None,
+        vol_bucket_at_entry: Optional[str] = None,
+    ) -> None:
         """Add or update a position."""
         if symbol in self.positions:
             # Average in
@@ -72,12 +84,28 @@ class PortfolioManager:
             pos.entry_price = total_cost / total_quantity if total_quantity != 0 else price
             pos.quantity = total_quantity
             pos.update_price(price)
+            # Keep original regime/volatility from first entry
         else:
             self.positions[symbol] = Position(
-                symbol=symbol, quantity=quantity, entry_price=price, entry_time=timestamp, current_price=price
+                symbol=symbol, 
+                quantity=quantity, 
+                entry_price=price, 
+                entry_time=timestamp, 
+                current_price=price,
+                regime_at_entry=regime_at_entry,
+                vol_bucket_at_entry=vol_bucket_at_entry,
             )
 
-    def close_position(self, symbol: str, price: float, timestamp: datetime, reason: str, agent: str) -> Optional[Trade]:
+    def close_position(
+        self, 
+        symbol: str, 
+        price: float, 
+        timestamp: datetime, 
+        reason: str, 
+        agent: str,
+        regime_at_entry: Optional[str] = None,
+        vol_bucket_at_entry: Optional[str] = None,
+    ) -> Optional[Trade]:
         """Close a position and record the trade."""
         if symbol not in self.positions:
             return None
@@ -85,6 +113,10 @@ class PortfolioManager:
         pos = self.positions[symbol]
         pnl = (price - pos.entry_price) * pos.quantity
         pnl_pct = ((price - pos.entry_price) / pos.entry_price) * 100.0 if pos.entry_price > 0 else 0.0
+
+        # Use stored regime/volatility from position if not provided
+        final_regime = regime_at_entry or pos.regime_at_entry
+        final_vol = vol_bucket_at_entry or pos.vol_bucket_at_entry
 
         trade = Trade(
             symbol=symbol,
@@ -97,6 +129,8 @@ class PortfolioManager:
             pnl_pct=pnl_pct,
             reason=reason,
             agent=agent,
+            regime_at_entry=final_regime,
+            vol_bucket_at_entry=final_vol,
         )
 
         self.trade_history.append(trade)
@@ -105,26 +139,33 @@ class PortfolioManager:
 
         return trade
 
-    def apply_position_delta(self, delta: float, price: float, timestamp: datetime) -> Optional[Trade]:
+    def apply_position_delta(
+        self, 
+        delta: float, 
+        price: float, 
+        timestamp: datetime,
+        regime_at_entry: Optional[str] = None,
+        vol_bucket_at_entry: Optional[str] = None,
+    ) -> Optional[Trade]:
         """Apply a position delta (positive = buy, negative = sell)."""
         if delta == 0:
             return None
 
-        current_qty = self.positions.get(self.symbol, Position(self.symbol, 0, price, timestamp, price)).quantity
+        current_qty = self.positions.get(self.symbol, Position(self.symbol, 0, price, timestamp, price, regime_at_entry=None, vol_bucket_at_entry=None)).quantity
         new_qty = current_qty + delta
 
         # Close position if crossing zero
         if current_qty > 0 and new_qty <= 0:
-            return self.close_position(self.symbol, price, timestamp, "position_reversal", "system")
+            return self.close_position(self.symbol, price, timestamp, "position_reversal", "system", regime_at_entry, vol_bucket_at_entry)
         elif current_qty < 0 and new_qty >= 0:
-            return self.close_position(self.symbol, price, timestamp, "position_reversal", "system")
+            return self.close_position(self.symbol, price, timestamp, "position_reversal", "system", regime_at_entry, vol_bucket_at_entry)
 
         # Update position
         if new_qty != 0:
-            self.add_position(self.symbol, delta, price, timestamp)
+            self.add_position(self.symbol, delta, price, timestamp, regime_at_entry, vol_bucket_at_entry)
         elif self.symbol in self.positions:
             # Close if going to zero
-            return self.close_position(self.symbol, price, timestamp, "position_closed", "system")
+            return self.close_position(self.symbol, price, timestamp, "position_closed", "system", regime_at_entry, vol_bucket_at_entry)
 
         return None
 

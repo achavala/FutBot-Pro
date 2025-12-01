@@ -130,3 +130,4 @@ The timestamp issue is **fixed**. The bars issue depends on whether:
 - Data feed is working
 - Bot is actually processing bars
 
+

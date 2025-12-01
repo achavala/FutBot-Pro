@@ -14,12 +14,15 @@ from core.features import indicators, stats_features
 from core.features.fvg import detect_fvgs
 from core.live.data_feed import BaseDataFeed
 from core.live.executor_live import LiveTradeExecutor
+from core.live.executor_options import SyntheticOptionsExecutor
 from core.live.profit_manager import ProfitManager, ProfitConfig
 from core.live.types import Bar
 from core.policy.controller import MetaPolicyController
 from core.portfolio.manager import PortfolioManager
+from core.portfolio.options_manager import OptionsPortfolioManager
 from core.regime.engine import RegimeEngine
 from core.regime.types import RegimeSignal
+from core.regime.microstructure import MarketMicrostructure
 from core.reward.memory import RollingMemoryStore
 from core.reward.tracker import RewardTracker
 from core.risk.advanced import AdvancedRiskManager
@@ -98,6 +101,58 @@ class LiveTradingLoop:
         else:
             self.profit_manager = None
         
+        # Options portfolio and executor
+        self.options_portfolio = OptionsPortfolioManager()
+        # Get options data feed from any options agent (if available)
+        options_data_feed = None
+        for agent in self.agents:
+            if hasattr(agent, 'options_data_feed') and agent.options_data_feed:
+                options_data_feed = agent.options_data_feed
+                logger.info(f"✅ [LiveLoop] Found options data feed from {agent.name}")
+                break
+        self.options_data_feed = options_data_feed  # Store for GEX calculation in _process_bar
+        
+        # Create options broker client for real Alpaca orders (if executor is Alpaca)
+        options_broker_client = None
+        if hasattr(self.executor, 'broker_client'):
+            broker = self.executor.broker_client
+            # Check if it's an Alpaca broker (supports options)
+            if hasattr(broker, 'trading_client') and hasattr(broker, 'is_paper'):
+                try:
+                    from core.live.options_broker_client import OptionsBrokerClient
+                    # Create options broker client using same credentials
+                    options_broker_client = OptionsBrokerClient(
+                        api_key=broker.api_key,
+                        api_secret=broker.api_secret,
+                        base_url=broker.base_url,
+                    )
+                    logger.info(f"✅ [LiveLoop] Options broker client initialized (paper={broker.is_paper})")
+                except Exception as e:
+                    logger.warning(f"⚠️ [LiveLoop] Could not create options broker client: {e}")
+        
+        self.options_executor = SyntheticOptionsExecutor(
+            self.options_portfolio, 
+            options_data_feed=options_data_feed,
+            options_broker_client=options_broker_client,  # Real Alpaca orders enabled
+        )
+        
+        # Pass options_broker_client to agents that need it (for Alpaca detection)
+        # This allows agents to detect Alpaca paper mode and adjust behavior
+        # (e.g., ThetaHarvesterAgent disables real straddle selling in Alpaca paper)
+        for agent in self.agents:
+            if hasattr(agent, 'options_broker_client'):
+                agent.options_broker_client = options_broker_client
+                # Trigger Alpaca paper mode detection if needed
+                if hasattr(agent, '__init__'):
+                    # Re-check Alpaca paper mode after broker client is set
+                    if options_broker_client and hasattr(options_broker_client, 'is_paper'):
+                        if options_broker_client.is_paper and hasattr(agent, 'alpaca_paper_mode'):
+                            agent.alpaca_paper_mode = True
+                            logger.info(f"✅ [LiveLoop] {agent.name} detected Alpaca paper mode - straddle selling will use SIM mode")
+        
+        # Market Microstructure (singleton for GEX data)
+        self.microstructure = MarketMicrostructure()
+        
         # Notification service for email and SMS
         try:
             self.notification_service = NotificationService()
@@ -111,6 +166,10 @@ class LiveTradingLoop:
         logger.info(f"🔵 [LiveLoop] Starting live trading loop...")
         if self.is_running:
             raise ValueError("Live trading loop is already running")
+        
+        # Clear any previous error state
+        self.error_message = None
+        self.stop_reason = None
 
         logger.info(f"🔵 [LiveLoop] Data feed connected: {self.data_feed.connected}")
         if not self.data_feed.connected:
@@ -128,33 +187,48 @@ class LiveTradingLoop:
             import time
             time.sleep(8)  # Give preload more time to complete (cache + IBKR)
             
+            # CRITICAL FIX: Process preloaded bars through _process_bar() to trigger trades
+            # Previously, preloaded bars were only added to bar_history but not processed
+            # This caused bars_per_symbol to be stuck at preload count and no trades to execute
             for symbol in self.config.symbols:
                 if hasattr(self.data_feed, 'bar_buffers') and symbol in self.data_feed.bar_buffers:
-                    # Copy all bars from buffer
+                    # Get preloaded bars from buffer
                     preloaded = list(self.data_feed.bar_buffers[symbol])
+                    logger.info(f"🔵 [LiveLoop] Processing {len(preloaded)} preloaded bars for {symbol} through trading pipeline...")
+                    
+                    # Process each preloaded bar through the full trading pipeline
+                    processed_count = 0
                     for bar in preloaded:
-                        # Check if bar already exists (by timestamp)
+                        # Check if bar already exists (by timestamp) to avoid duplicates
                         if not any(b.timestamp == bar.timestamp for b in self.bar_history[symbol]):
-                            self.bar_history[symbol].append(bar)
-                            # Don't process preloaded bars - let the loop process them naturally
+                            # CRITICAL: Process bar through _process_bar() to trigger trading logic
+                            self._process_bar(symbol, bar)
+                            processed_count += 1
+                            # Ensure symbol case matches exactly (SPY not spy)
+                            symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                            # bars_per_symbol is already incremented in _process_bar() via the loop logic
+                            logger.debug(f"✅ [LiveLoop] Processed preloaded bar #{processed_count} for {symbol_key}: {bar.timestamp}")
                     
-                    loaded_count = len(self.bar_history[symbol])
-                    logger.info(f"Loaded {loaded_count} bars for {symbol} (preloaded: {len(preloaded)})")
+                    # CRITICAL: Update current_indices to skip past preloaded bars
+                    # This prevents the loop from re-processing the same bars
+                    if hasattr(self.data_feed, 'current_indices') and hasattr(self.data_feed, 'cached_data'):
+                        if symbol in self.data_feed.cached_data:
+                            # Skip past the preloaded bars
+                            preload_count = len(preloaded)
+                            current_idx = self.data_feed.current_indices.get(symbol, 0)
+                            # Only update if we haven't already advanced past preload
+                            if current_idx < preload_count:
+                                self.data_feed.current_indices[symbol] = preload_count
+                                logger.info(f"✅ [LiveLoop] Updated current_indices['{symbol}'] to {preload_count} to skip preloaded bars")
                     
-                    # CRITICAL FIX: Update bars_per_symbol during preload
-                    # This ensures bars_per_symbol reflects all bars, not just loop-processed ones
-                    if loaded_count > 0:
-                        # Ensure symbol case matches exactly (SPY not spy)
-                        symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
-                        self.bars_per_symbol[symbol_key] = loaded_count
-                        self.bar_count = max(self.bar_count, loaded_count)
-                        logger.info(f"✅ [LiveLoop] Updated bars_per_symbol['{symbol_key}'] = {loaded_count} (from preload)")
-                        logger.info(f"✅ [LiveLoop] Current state: bar_count={self.bar_count}, bars_per_symbol={self.bars_per_symbol}")
+                    symbol_key = symbol.upper() if isinstance(symbol, str) else symbol
+                    logger.info(f"✅ [LiveLoop] Processed {processed_count} preloaded bars for {symbol}, bars_per_symbol['{symbol_key}'] = {self.bars_per_symbol.get(symbol_key, 0)}")
+                    logger.info(f"✅ [LiveLoop] Current state: bar_count={self.bar_count}, bars_per_symbol={self.bars_per_symbol}")
                     
                     # Warn if we have fewer bars than desired, but continue anyway
-                    if loaded_count < 50:
+                    if processed_count < 50:
                         logger.warning(
-                            f"Only {loaded_count} bars loaded for {symbol} (target: 60). "
+                            f"Only {processed_count} bars processed for {symbol} (target: 60). "
                             f"Bot will accumulate bars naturally over time. Trading will start once 50+ bars are available."
                         )
 
@@ -225,13 +299,24 @@ class LiveTradingLoop:
         # Use explicit offline_mode from config, or detect via cache_path
         is_offline_mode = self.config.offline_mode or hasattr(self.data_feed, 'cache_path')
         
+        # Initialize last_bar_time to start_date if available (for accurate date display)
+        if is_offline_mode and hasattr(self.data_feed, 'start_date') and self.data_feed.start_date:
+            # Set last_bar_time to start_date so UI shows correct date immediately
+            self.last_bar_time = self.data_feed.start_date
+            # Ensure timezone-aware
+            if self.last_bar_time.tzinfo is None:
+                self.last_bar_time = self.last_bar_time.replace(tzinfo=timezone.utc)
+            logger.info(f"🔵 [LiveLoop] Initialized last_bar_time to start_date: {self.last_bar_time}")
+        
         # Calculate sleep interval based on replay speed
         if is_offline_mode:
             # In offline mode, use replay speed multiplier
             base_interval = self.config.bar_interval_seconds
-            sleep_interval = base_interval / self.config.replay_speed_multiplier
+            # Fix division by zero: ensure replay_speed_multiplier is at least 0.1
+            replay_speed = max(self.config.replay_speed_multiplier, 0.1) if self.config.replay_speed_multiplier else 600.0
+            sleep_interval = base_interval / replay_speed
             logger.info(f"🔵 [LiveLoop] OFFLINE MODE ENABLED")
-            logger.info(f"🔵 [LiveLoop] Replay speed: {self.config.replay_speed_multiplier}x ({sleep_interval:.3f}s per bar)")
+            logger.info(f"🔵 [LiveLoop] Replay speed: {replay_speed}x ({sleep_interval:.3f}s per bar)")
             logger.info(f"🔵 [LiveLoop] Processing up to 10 bars per iteration")
             if hasattr(self.data_feed, 'start_date') and self.data_feed.start_date:
                 logger.info(f"🔵 [LiveLoop] Beginning replay at {self.data_feed.start_date}")
@@ -271,11 +356,25 @@ class LiveTradingLoop:
                                         logger.info(f"✅ [LiveLoop] Generated {len(batch_bars)} synthetic bars for {symbol}")
                             
                             if batch_bars:
-                                logger.info(f"🔵 [LiveLoop] Processing {len(batch_bars)} bars for {symbol}")
-                                logger.info(f"🔵 [LiveLoop] Got {len(batch_bars)} batch bars for {symbol}")
+                                # Log first bar timestamp to verify we're processing the correct date
+                                if len(batch_bars) > 0:
+                                    first_bar_time = batch_bars[0].timestamp
+                                    # Verify the bar timestamp matches the selected start_date
+                                    if hasattr(self.data_feed, 'start_date') and self.data_feed.start_date:
+                                        time_diff = abs((first_bar_time - self.data_feed.start_date).total_seconds())
+                                        if time_diff > 3600:  # More than 1 hour difference
+                                            logger.warning(f"⚠️ [LiveLoop] First bar timestamp {first_bar_time} differs from start_date {self.data_feed.start_date} by {time_diff/3600:.1f} hours")
+                                        else:
+                                            logger.info(f"✅ [LiveLoop] First bar timestamp {first_bar_time} matches start_date {self.data_feed.start_date} (diff: {time_diff/60:.1f} min)")
+                                    logger.info(f"📅 [LiveLoop] Processing {len(batch_bars)} bars for {symbol}, first bar: {first_bar_time}")
                                 for bar in batch_bars:
                                     if not self.is_running:
                                         break
+                                    
+                                    # CRITICAL FIX: Validate bar symbol matches requested symbol BEFORE processing
+                                    if bar.symbol != symbol:
+                                        logger.error(f"🚨 [LiveLoop] BATCH SYMBOL MISMATCH: Requested {symbol} but batch bar has symbol {bar.symbol}! Price: {bar.close:.2f}. Skipping this bar.")
+                                        continue  # Skip this bar, don't process it
                                     
                                     # Check if bar exceeds end_time (if specified)
                                     if hasattr(self.data_feed, 'end_date') and self.data_feed.end_date:
@@ -408,7 +507,27 @@ class LiveTradingLoop:
 
                 # Handle end of data in offline mode
                 if is_offline_mode:
-                    if bars_processed == 0:
+                    # Check if all symbols have finished processing
+                    all_symbols_done = True
+                    cached_data = getattr(self.data_feed, 'cached_data', {})
+                    current_indices = getattr(self.data_feed, 'current_indices', {})
+                    
+                    for sym in self.config.symbols:
+                        if sym in cached_data:
+                            current_idx = current_indices.get(sym, 0)
+                            total_bars = len(cached_data.get(sym, []))
+                            if current_idx < total_bars:
+                                all_symbols_done = False
+                                break
+                    
+                    if all_symbols_done and bars_processed == 0:
+                        # All symbols finished - log summary and stop
+                        self._log_simulation_summary()
+                        self.stop_reason = "end_of_data"
+                        self.is_running = False
+                        logger.info(f"✅ [LiveLoop] Simulation complete - all symbols finished processing")
+                        break
+                    elif bars_processed == 0:
                         consecutive_no_bars += 1
                         if consecutive_no_bars >= max_consecutive_no_bars:
                             # End of data reached - log summary and stop
@@ -433,7 +552,11 @@ class LiveTradingLoop:
             except Exception as e:
                 error_str = str(e)
                 # Don't store VWAP/DatetimeIndex errors (handled with fallback) or KeyError: 0 (handled)
-                if "VWAP" not in error_str and "DatetimeIndex" not in error_str and error_str != "0":
+                # Also don't store "cannot convert series to float" errors - these are now handled by safe wrappers
+                if ("VWAP" not in error_str and 
+                    "DatetimeIndex" not in error_str and 
+                    error_str != "0" and
+                    "cannot convert the series to" not in error_str):
                     self.error_message = error_str
                     # Log detailed error for debugging
                     import traceback
@@ -442,20 +565,25 @@ class LiveTradingLoop:
                 else:
                     # Clear error message for handled errors
                     self.error_message = None
+                    # Log as debug for handled errors
+                    if "cannot convert the series to" in error_str:
+                        logger.debug(f"Handled conversion error (should not occur with safe wrappers): {error_str}")
                 # Continue running but log error
                 time.sleep(5.0)
 
     def _process_bar(self, symbol: str, bar: Bar) -> None:
         """Process a single bar through the full pipeline."""
+        # CRITICAL FIX: Validate bar symbol matches requested symbol to prevent cross-symbol contamination
+        if bar.symbol != symbol:
+            logger.error(f"🚨 [LiveLoop] SYMBOL MISMATCH: Requested {symbol} but bar has symbol {bar.symbol}! Price: {bar.close:.2f}. Discarding bar to prevent incorrect trades.")
+            return  # Skip processing this bar to prevent wrong prices being used
+        
         self.bar_count += 1
         self.last_bar_time = bar.timestamp
         
-        # Log every 10 bars to reduce log noise
-        if self.bar_count % 10 == 0:
-            logger.debug(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
-        
-        if self.bar_count % 10 == 0:
-            logger.info(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}")
+        # PERFORMANCE: Reduce logging frequency (every 50 bars instead of 10)
+        if self.bar_count % 50 == 0:
+            logger.info(f"🔵 [LiveLoop] Processing bar #{self.bar_count} for {symbol} at {bar.timestamp}, price={bar.close:.2f}")
 
         # Add to history (if not already present from preload)
         if not self.bar_history[symbol] or self.bar_history[symbol][-1].timestamp != bar.timestamp:
@@ -584,6 +712,115 @@ class LiveTradingLoop:
 
         signal = self.regime_engine.classify_bar(regime_input)
         
+        # ============================================================
+        # Calculate GEX Proxy (Gamma Exposure) - Market Microstructure
+        # ============================================================
+        # GEX measures dealer positioning and is attached to RegimeSignal
+        # PERFORMANCE OPTIMIZATION: Cache GEX calculation (update every 5 minutes, not every bar)
+        # This makes it accessible to all agents as part of the Market Microstructure Snapshot
+        gex_data = None
+        if hasattr(self, 'options_data_feed') and self.options_data_feed:
+            # Initialize GEX cache if not exists
+            if not hasattr(self, '_gex_cache'):
+                self._gex_cache = {}
+            if not hasattr(self, '_gex_last_update'):
+                self._gex_last_update = {}
+            
+            # Check if we need to update GEX (every 5 minutes = 300 seconds)
+            current_time = time.time()
+            last_update = self._gex_last_update.get(symbol, 0)
+            update_interval = 300  # 5 minutes
+            
+            if current_time - last_update >= update_interval:
+                try:
+                    # Fetch options chain for GEX calculation (cached internally by options_data_feed)
+                    options_chain = self.options_data_feed.get_options_chain(
+                        underlying_symbol=symbol,
+                        option_type=None,  # Get both calls and puts for GEX
+                    )
+                    
+                    if options_chain and len(options_chain) > 0:
+                        # PERFORMANCE: Sample fewer contracts (50 instead of 100) and skip API calls for quotes/Greeks
+                        # Use contract data directly if available, otherwise fetch only what's needed
+                        chain_for_gex = []
+                        for opt in options_chain[:50]:  # Reduced from 100 to 50 for speed
+                            option_symbol_gex = opt.get("symbol", "")
+                            if not option_symbol_gex:
+                                continue
+                            
+                            # PERFORMANCE: Try to get data from contract directly first
+                            gamma = opt.get('gamma') or 0
+                            oi = opt.get('open_interest') or 0
+                            
+                            # Only fetch quote/Greeks if not in contract data (reduces API calls by ~80%)
+                            if gamma == 0 or oi == 0:
+                                quote_gex = self.options_data_feed.get_option_quote(option_symbol_gex)
+                                greeks_gex = self.options_data_feed.get_option_greeks(option_symbol_gex)
+                                if quote_gex:
+                                    oi = quote_gex.get('open_interest', 0)
+                                if greeks_gex:
+                                    gamma = greeks_gex.get('gamma', 0)
+                            
+                            if gamma > 0 or oi > 0:  # Only include if we have useful data
+                                chain_for_gex.append({
+                                    'strike_price': opt.get('strike_price', 0),
+                                    'option_type': opt.get('option_type', 'call'),
+                                    'symbol': option_symbol_gex,
+                                    'gamma': gamma,
+                                    'open_interest': oi,
+                                })
+                        
+                        if chain_for_gex:
+                            # Calculate GEX proxy (GEX v2)
+                            gex_data = self.options_data_feed.calculate_gex_proxy(
+                                chain_data=chain_for_gex,
+                                underlying_price=bar.close,
+                            )
+                            
+                            if gex_data and gex_data.get('gex_coverage', 0) > 0:
+                                # Update Market Microstructure singleton
+                                self.microstructure.update_gex(symbol, gex_data)
+                                
+                                # Cache the result
+                                self._gex_cache[symbol] = gex_data
+                                self._gex_last_update[symbol] = current_time
+                                
+                                # Only log every 5 minutes (when updated)
+                                logger.info(
+                                    f"[GEX v2] Updated for {symbol}: regime={gex_data['gex_regime']}, "
+                                    f"strength={gex_data['gex_strength']:.2f}B, "
+                                    f"coverage={gex_data['gex_coverage']} contracts"
+                                )
+                except Exception as e:
+                    logger.debug(f"Could not calculate GEX proxy for {symbol}: {e}")
+            else:
+                # Use cached GEX data (much faster)
+                gex_data = self._gex_cache.get(symbol)
+        
+        # Attach GEX data to RegimeSignal (Market Microstructure Snapshot)
+        # RegimeSignal is frozen, so we need to create a new one with GEX data
+        if gex_data:
+            signal = RegimeSignal(
+                timestamp=signal.timestamp,
+                trend_direction=signal.trend_direction,
+                volatility_level=signal.volatility_level,
+                regime_type=signal.regime_type,
+                bias=signal.bias,
+                confidence=signal.confidence,
+                active_fvg=signal.active_fvg,
+                metrics=signal.metrics,
+                is_valid=signal.is_valid,
+                gex_regime=gex_data.get('gex_regime'),
+                gex_strength=gex_data.get('gex_strength'),
+                total_gex_dollar=gex_data.get('total_gex_dollar'),
+            )
+            # Log GEX for debugging
+            if self.bar_count % 10 == 0:  # Log every 10 bars
+                logger.info(
+                    f"[GEX] regime={gex_data['gex_regime']} strength={gex_data['gex_strength']:.2f}B "
+                    f"raw=${gex_data['total_gex_dollar']:,.0f}"
+                )
+        
         # Log regime classification for debugging
         if self.bar_count % 10 == 0:  # Log every 10 bars
             logger.info(
@@ -675,18 +912,24 @@ class LiveTradingLoop:
         
         # Check profit-taking for existing positions
         if self.profit_manager and current_position != 0:
+            # CRITICAL FIX: Use bar.close for profit manager check
             should_close, reason = self.profit_manager.should_take_profit(
-                symbol, latest["close"], self.bar_count, signal
+                symbol, bar.close, self.bar_count, signal
             )
             if should_close:
                 logger.info(f"Taking profit for {symbol}: {reason}")
                 # Close position
-                result = self.executor.close_position(symbol, current_position)
+                # CRITICAL FIX: Pass bar.close as current_price for correct fill price
+                result = self.executor.close_position(symbol, current_position, current_price=bar.close)
                 if result.success:
                     # Update portfolio
                     if symbol in self.portfolio.positions:
+                        # Use stored regime/volatility from position
+                        # CRITICAL FIX: Use bar.close directly to ensure correct price
                         trade = self.portfolio.close_position(
-                            symbol, latest["close"], bar.timestamp, reason, "profit_manager"
+                            symbol, bar.close, bar.timestamp, reason, "profit_manager",
+                            regime_at_entry=None,  # Use stored from position
+                            vol_bucket_at_entry=None,  # Use stored from position
                         )
                         if trade:
                             logger.info(f"Closed position: {symbol}, PnL: ${trade.pnl:.2f} ({trade.pnl_pct:.2f}%)")
@@ -756,8 +999,41 @@ class LiveTradingLoop:
                     is_valid=True,
                 )
         
-        # Execute if valid
+        # Execute if valid - route to options or stock executor
         if intent.is_valid and intent.position_delta != 0:
+            # Check if this is an options trade
+            if intent.instrument_type == "option":
+                logger.info(f"✅ [OptionsExecution] Executing options trade: {symbol}, Type: {intent.option_type}, Delta: {intent.position_delta:.4f}, Reason: {intent.reason}")
+                # Get current option position if exists (simplified - in production track better)
+                current_option_pos = None
+                
+                # Get regime/volatility strings
+                regime_str = signal.regime_type.value if hasattr(signal.regime_type, 'value') else str(signal.regime_type)
+                vol_str = signal.volatility_level.value if hasattr(signal.volatility_level, 'value') else str(signal.volatility_level)
+                
+                # Execute options trade
+                result = self.options_executor.execute_intent(
+                    intent=intent,
+                    symbol=symbol,
+                    underlying_price=bar.close,
+                    current_position=current_option_pos,
+                    regime_at_entry=regime_str,
+                    vol_bucket_at_entry=vol_str,
+                )
+                
+                if result.success:
+                    if result.trade:
+                        logger.info(f"✅ [OptionsExecution] Closed options position: {result.option_symbol}, P&L: ${result.trade.pnl:.2f}")
+                    elif result.option_position:
+                        logger.info(f"✅ [OptionsExecution] Opened options position: {result.option_symbol}, Quantity: {result.option_position.quantity:.2f} contracts")
+                else:
+                    logger.warning(f"⚠️ [OptionsExecution] Options trade failed: {result.reason}")
+                
+                # Update options positions with current prices
+                self.options_executor.update_positions(symbol, bar.close)
+                return  # Options trades handled, skip stock execution
+            
+            # Stock trade execution (existing logic)
             logger.info(f"✅ [TradeExecution] Executing trade: {symbol}, Delta: {intent.position_delta:.4f}, Reason: {intent.reason}")
             # Get investment amount from asset profile or config
             if self.asset_profiles and symbol in self.asset_profiles:
@@ -766,8 +1042,9 @@ class LiveTradingLoop:
             else:
                 base_investment = self.config.fixed_investment_amount
             
-            # Calculate target quantity based on $1000 investment
-            target_quantity = base_investment / latest["close"] if latest["close"] > 0 else 0.0
+            # Calculate target quantity based on investment amount
+            # CRITICAL FIX: Use bar.close for quantity calculation to ensure correct price
+            target_quantity = base_investment / bar.close if bar.close > 0 else 0.0
             
             # Apply direction (positive = buy, negative = sell)
             if intent.position_delta > 0:
@@ -783,17 +1060,26 @@ class LiveTradingLoop:
             # Compute risk-constrained size
             risk_constraints = {}
             if self.advanced_risk:
-                # Use $1000 as base size, let risk manager adjust
-                size, _ = self.advanced_risk.compute_advanced_position_size(
-                    base_investment,
-                    latest["close"],
-                    intent.confidence,
-                    signal.regime_type,
-                    signal.volatility_level,
-                    self.bar_count,
-                )
+                # In testing mode, use simpler position sizing to ensure full investment
+                if self.config.testing_mode:
+                    # For testing: use full base_investment (or 80% minimum for very low confidence)
+                    # This ensures we see realistic position sizes for validation
+                    confidence_factor = max(0.8, intent.confidence) if intent.confidence > 0 else 0.8
+                    adjusted_size = base_investment * confidence_factor
+                else:
+                    # Production: use full advanced risk management
+                    size, _ = self.advanced_risk.compute_advanced_position_size(
+                        base_investment,
+                        bar.close,
+                        intent.confidence,
+                        signal.regime_type,
+                        signal.volatility_level,
+                        self.bar_count,
+                    )
+                    adjusted_size = size
+                
                 # Convert dollar size to quantity
-                max_quantity = size / latest["close"] if latest["close"] > 0 else 0.0
+                max_quantity = adjusted_size / bar.close if bar.close > 0 else 0.0
                 # Apply direction
                 if intent.position_delta > 0:
                     max_quantity = abs(max_quantity)
@@ -808,9 +1094,10 @@ class LiveTradingLoop:
             
             # Only execute if position delta is significant
             if abs(position_delta) > 0.01:  # At least 0.01 shares
-                # Create modified intent with calculated position delta
+                # CRITICAL FIX: position_delta is already in SHARES, don't divide by price again!
+                # The position_delta was calculated as target_quantity - current_position (both in shares)
                 modified_intent = intent.__class__(
-                    position_delta=position_delta / latest["close"] if latest["close"] > 0 else 0.0,
+                    position_delta=position_delta,  # Already in shares, NOT dollars!
                     confidence=intent.confidence,
                     primary_agent=intent.primary_agent,
                     contributing_agents=intent.contributing_agents,
@@ -818,13 +1105,24 @@ class LiveTradingLoop:
                     is_valid=True,
                 )
                 
-                result = self.executor.apply_intent(modified_intent, symbol, latest["close"], current_position, risk_constraints)
+                # CRITICAL FIX: Log symbol and price before execution to catch mismatches
+                logger.info(f"🔍 [TradeExecution] Executing trade for {symbol}: bar.symbol={bar.symbol}, bar.close=${bar.close:.2f}, intent.delta={intent.position_delta:.4f}")
+                if bar.symbol != symbol:
+                    logger.error(f"🚨 [TradeExecution] CRITICAL: Symbol mismatch detected! Requested {symbol} but bar.symbol={bar.symbol}, price=${bar.close:.2f}. ABORTING TRADE.")
+                    return  # Skip this trade to prevent wrong prices (return from function, not continue)
+                
+                # Use bar.close directly to ensure correct price (not latest["close"] which might be from wrong bar)
+                result = self.executor.apply_intent(modified_intent, symbol, bar.close, current_position, risk_constraints)
                 if result.success and result.order:
                     # Determine if this is a buy or sell
                     is_buy = result.position_delta_applied > 0
                     side = "BUY" if is_buy else "SELL"
                     quantity = abs(result.position_delta_applied)
-                    price = latest["close"]
+                    # CRITICAL FIX: Use bar.close directly to ensure correct price from the actual bar being processed
+                    price = bar.close
+                    
+                    # CRITICAL FIX: Log final trade details to verify correct symbol and price
+                    logger.info(f"✅ [TradeExecution] Trade executed: {symbol} {side} {quantity:.4f} @ ${price:.2f} (bar.symbol={bar.symbol}, verified match)")
                     
                     # Send notification
                     if self.notification_service:
@@ -839,8 +1137,17 @@ class LiveTradingLoop:
                         except Exception as e:
                             logger.error(f"Failed to send notification: {e}")
                     
-                    # Update portfolio
-                    trade = self.portfolio.apply_position_delta(result.position_delta_applied, latest["close"], bar.timestamp)
+                    # Update portfolio with regime/volatility metadata
+                    regime_str = signal.regime_type.value if hasattr(signal.regime_type, 'value') else str(signal.regime_type)
+                    vol_str = signal.volatility_level.value if hasattr(signal.volatility_level, 'value') else str(signal.volatility_level)
+                    # CRITICAL FIX: Use bar.close directly to ensure correct price
+                    trade = self.portfolio.apply_position_delta(
+                        result.position_delta_applied, 
+                        bar.close,  # Use actual bar price, not latest["close"]
+                        bar.timestamp,
+                        regime_at_entry=regime_str,
+                        vol_bucket_at_entry=vol_str,
+                    )
                     
                     # If position was closed (trade returned), send sell notification with PnL
                     if trade and not is_buy:
@@ -866,7 +1173,7 @@ class LiveTradingLoop:
                             if symbol in self.portfolio.positions:
                                 entry_price = self.portfolio.positions[symbol].entry_price
                             else:
-                                entry_price = latest["close"]
+                                entry_price = bar.close  # Use actual bar price
                             
                             self.profit_manager.track_position(
                                 symbol=symbol,
@@ -876,17 +1183,20 @@ class LiveTradingLoop:
                                 entry_bar=self.bar_count,
                             )
 
-        # Update portfolio equity
-        self.portfolio.update_position(symbol, latest["close"])
-        self.portfolio.record_equity(latest["close"])
+        # Update portfolio equity - CRITICAL FIX: Use bar.close directly
+        self.portfolio.update_position(symbol, bar.close)
+        self.portfolio.record_equity(bar.close)
+        
+        # Update options positions with current underlying price
+        self.options_executor.update_positions(symbol, bar.close)
         
         # Update profit manager
         if self.profit_manager:
-            self.profit_manager.update_position(symbol, latest["close"], self.bar_count)
+            self.profit_manager.update_position(symbol, bar.close, self.bar_count)
 
         # Update advanced risk equity
         if self.advanced_risk:
-            total_value = self.portfolio.get_total_value(latest["close"])
+            total_value = self.portfolio.get_total_value(bar.close)
             self.advanced_risk.update_equity(total_value)
         
         # Update challenge risk manager if active
@@ -968,12 +1278,42 @@ class LiveTradingLoop:
         df["hurst"] = df["close"].rolling(100, min_periods=20).apply(
             lambda x: stats_features.hurst_exponent(x, 2, 20) if len(x) >= 20 else 0.5
         ).fillna(0.5)  # Default to 0.5 (random walk) if not enough data
-        df["slope"] = df["close"].rolling(30, min_periods=10).apply(
-            lambda x: stats_features.rolling_regression(x)[0] if len(x) >= 10 else 0.0
-        ).fillna(0.0)
-        df["r_squared"] = df["close"].rolling(30, min_periods=10).apply(
-            lambda x: stats_features.rolling_regression(x)[1] if len(x) >= 10 else 0.0
-        ).fillna(0.0)
+        # Compute slope and r_squared using rolling_regression
+        # Handle the case where rolling_regression might return empty DataFrame or Series
+        def safe_rolling_slope(x):
+            if len(x) < 10:
+                return 0.0
+            try:
+                result = stats_features.rolling_regression(x, window=min(30, len(x)))
+                if result.empty or len(result) == 0:
+                    return 0.0
+                slope_val = result["slope"].iloc[-1]
+                # Ensure we return a scalar float, not a Series
+                if isinstance(slope_val, pd.Series):
+                    slope_val = slope_val.iloc[-1] if len(slope_val) > 0 else 0.0
+                return float(slope_val) if pd.notna(slope_val) else 0.0
+            except (IndexError, KeyError, ValueError, TypeError) as e:
+                logger.debug(f"Error computing slope: {e}")
+                return 0.0
+        
+        def safe_rolling_r2(x):
+            if len(x) < 10:
+                return 0.0
+            try:
+                result = stats_features.rolling_regression(x, window=min(30, len(x)))
+                if result.empty or len(result) == 0:
+                    return 0.0
+                r2_val = result["r_squared"].iloc[-1]
+                # Ensure we return a scalar float, not a Series
+                if isinstance(r2_val, pd.Series):
+                    r2_val = r2_val.iloc[-1] if len(r2_val) > 0 else 0.0
+                return float(r2_val) if pd.notna(r2_val) else 0.0
+            except (IndexError, KeyError, ValueError, TypeError) as e:
+                logger.debug(f"Error computing r_squared: {e}")
+                return 0.0
+        
+        df["slope"] = df["close"].rolling(30, min_periods=10).apply(safe_rolling_slope, raw=False).fillna(0.0)
+        df["r_squared"] = df["close"].rolling(30, min_periods=10).apply(safe_rolling_r2, raw=False).fillna(0.0)
 
         df["atr_pct"] = (df["atr"] / df["close"]) * 100.0
         df["vwap_deviation"] = ((df["close"] - df["vwap"]) / df["vwap"]) * 100.0

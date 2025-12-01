@@ -55,6 +55,10 @@ class RegimeSignal:
     active_fvg: Optional[FairValueGap] = None
     metrics: Dict[str, float] = field(default_factory=dict)
     is_valid: bool = True
+    # Market Microstructure - GEX Proxy (Gamma Exposure)
+    gex_regime: Optional[str] = None  # 'POSITIVE' or 'NEGATIVE'
+    gex_strength: Optional[float] = None  # Normalized |GEX| in billions
+    total_gex_dollar: Optional[float] = None  # Raw dollar gamma exposure
 
     @property
     def is_trending(self) -> bool:

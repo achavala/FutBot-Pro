@@ -287,6 +287,8 @@ class AdvancedRiskManager:
 
     def get_risk_metrics(self) -> Dict[str, any]:
         """Get comprehensive risk metrics."""
+        # PERFORMANCE: Calculate VaR once and reuse
+        var_95 = self.calculate_var()
         return {
             "current_drawdown_pct": self.get_current_drawdown(),
             "peak_equity": self.peak_equity,
@@ -295,7 +297,7 @@ class AdvancedRiskManager:
             "daily_pnl_pct": (self.daily_pnl / self.initial_capital) * 100.0,
             "circuit_breaker_active": self.circuit_breaker_active,
             "recent_loss_count": sum(self.recent_losses),
-            "var_95": self.calculate_var(),
-            "var_pct": (self.calculate_var() / self.current_capital) * 100.0 if self.current_capital > 0 else 0.0,
+            "var_95": var_95,
+            "var_pct": (var_95 / self.current_capital) * 100.0 if self.current_capital > 0 else 0.0,
         }
 

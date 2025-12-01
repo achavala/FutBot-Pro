@@ -156,7 +156,7 @@ class ChallengeAgent(BaseAgent):
         elif (
             signal.regime_type == RegimeType.EXPANSION
             and signal.confidence >= 0.75
-            and signal.volatility_level.value == "HIGH"
+            and (signal.volatility_level.value if hasattr(signal.volatility_level, 'value') else str(signal.volatility_level)) == "high"
         ):
             # High volatility expansion - trade with the bias
             if signal.bias == Bias.LONG:
@@ -213,7 +213,7 @@ class ChallengeAgent(BaseAgent):
                 "base_leverage": self.base_leverage,
             }
             logger.info(
-                f"ChallengeAgent: Entry signal - {direction.value}, "
+                f"ChallengeAgent: Entry signal - {direction.value if hasattr(direction, 'value') else str(direction)}, "
                 f"leverage={adaptive_leverage:.2f}x, "
                 f"profit_target={dynamic_profit_target:.2f}%, "
                 f"confidence={confidence:.2f}"

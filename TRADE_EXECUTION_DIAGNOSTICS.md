@@ -162,3 +162,4 @@ tail -f logs/*.log | grep -E "Processed bar|get_next_bar|bar for"
 
 5. **Review risk limits** - Daily loss limits might be blocking trades
 
+

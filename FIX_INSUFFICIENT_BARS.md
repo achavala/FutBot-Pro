@@ -235,3 +235,4 @@ After collecting bars, verify:
 **Minimum Bars Required**: 30
 **Recommended**: 50+ for stable analysis
 
+

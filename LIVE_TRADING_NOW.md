@@ -100,3 +100,4 @@ Once market closes, the **Simulate button will appear** and you can:
 
 **Refresh your browser and click "Start Live" - it's ready for live trading!**
 
+

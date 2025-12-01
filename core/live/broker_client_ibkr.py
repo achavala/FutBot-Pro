@@ -286,6 +286,7 @@ class IBKRBrokerClient(BaseBrokerClient):
         time_in_force: TimeInForce = TimeInForce.DAY,
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
+        current_price: Optional[float] = None,  # Ignored for IBKR (uses broker prices)
     ) -> Order:
         """Submit order to IBKR."""
         self._ensure_connected()

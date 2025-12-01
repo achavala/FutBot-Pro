@@ -244,6 +244,97 @@ def save_metadata(metadata: Dict):
     logger.info(f"✅ Metadata saved to {metadata_path}")
 
 
+def is_trading_day(date_obj: datetime) -> bool:
+    """Check if a date is a trading day (not weekend or holiday)."""
+    from datetime import date, timedelta
+    
+    # Check if weekend
+    if date_obj.weekday() >= 5:  # Saturday or Sunday
+        return False
+    
+    # Check if holiday
+    year = date_obj.year
+    date_only = date_obj.date()
+    
+    # Known holidays
+    holidays = set()
+    
+    # New Year's Day
+    jan_1 = date(year, 1, 1)
+    if jan_1.weekday() == 5:
+        holidays.add((jan_1 + timedelta(days=2)).strftime("%Y-%m-%d"))
+    elif jan_1.weekday() == 6:
+        holidays.add((jan_1 + timedelta(days=1)).strftime("%Y-%m-%d"))
+    else:
+        holidays.add(jan_1.strftime("%Y-%m-%d"))
+    
+    # MLK Day (3rd Monday in January)
+    jan_1 = date(year, 1, 1)
+    days_until_monday = (0 - jan_1.weekday()) % 7
+    first_monday = jan_1 + timedelta(days=days_until_monday)
+    mlk_day = first_monday + timedelta(days=14)
+    holidays.add(mlk_day.strftime("%Y-%m-%d"))
+    
+    # Presidents Day (3rd Monday in February)
+    feb_1 = date(year, 2, 1)
+    days_until_monday = (0 - feb_1.weekday()) % 7
+    first_monday = feb_1 + timedelta(days=days_until_monday)
+    presidents_day = first_monday + timedelta(days=14)
+    holidays.add(presidents_day.strftime("%Y-%m-%d"))
+    
+    # Memorial Day (last Monday in May)
+    may_31 = date(year, 5, 31)
+    days_until_monday = (0 - may_31.weekday()) % 7
+    memorial_day = may_31 - timedelta(days=days_until_monday)
+    holidays.add(memorial_day.strftime("%Y-%m-%d"))
+    
+    # Juneteenth (June 19)
+    jun_19 = date(year, 6, 19)
+    if jun_19.weekday() == 5:
+        holidays.add((jun_19 - timedelta(days=1)).strftime("%Y-%m-%d"))
+    elif jun_19.weekday() == 6:
+        holidays.add((jun_19 + timedelta(days=1)).strftime("%Y-%m-%d"))
+    else:
+        holidays.add(jun_19.strftime("%Y-%m-%d"))
+    
+    # Independence Day (July 4)
+    jul_4 = date(year, 7, 4)
+    if jul_4.weekday() == 5:
+        holidays.add((jul_4 - timedelta(days=1)).strftime("%Y-%m-%d"))
+    elif jul_4.weekday() == 6:
+        holidays.add((jul_4 + timedelta(days=1)).strftime("%Y-%m-%d"))
+    else:
+        holidays.add(jul_4.strftime("%Y-%m-%d"))
+    
+    # Labor Day (1st Monday in September)
+    sep_1 = date(year, 9, 1)
+    days_until_monday = (0 - sep_1.weekday()) % 7
+    labor_day = sep_1 + timedelta(days=days_until_monday)
+    holidays.add(labor_day.strftime("%Y-%m-%d"))
+    
+    # Thanksgiving (4th Thursday in November)
+    nov_1 = date(year, 11, 1)
+    days_until_thursday = (3 - nov_1.weekday()) % 7
+    first_thursday = nov_1 + timedelta(days=days_until_thursday)
+    thanksgiving = first_thursday + timedelta(days=21)
+    holidays.add(thanksgiving.strftime("%Y-%m-%d"))
+    
+    # Day After Thanksgiving
+    day_after = thanksgiving + timedelta(days=1)
+    holidays.add(day_after.strftime("%Y-%m-%d"))
+    
+    # Christmas (Dec 25)
+    dec_25 = date(year, 12, 25)
+    if dec_25.weekday() == 5:
+        holidays.add((dec_25 - timedelta(days=1)).strftime("%Y-%m-%d"))
+    elif dec_25.weekday() == 6:
+        holidays.add((dec_25 + timedelta(days=1)).strftime("%Y-%m-%d"))
+    else:
+        holidays.add(dec_25.strftime("%Y-%m-%d"))
+    
+    return date_only.strftime("%Y-%m-%d") not in holidays
+
+
 def collect_stock_data(symbols: List[str], months: int = 3, skip_existing: bool = True):
     """Collect historical stock data from Alpaca."""
     try:
@@ -279,10 +370,12 @@ def collect_stock_data(symbols: List[str], months: int = 3, skip_existing: bool 
         ensure_db_indexes(cache_path)
         
         # Calculate date range
-        end_date = datetime.now(timezone.utc)
+        # Use delayed data (2+ days ago) to avoid SIP subscription errors
+        # Alpaca free/paper accounts don't have access to recent SIP data
+        end_date = datetime.now(timezone.utc) - timedelta(days=2, hours=2)  # 2 days + 2 hours ago (definitely delayed)
         start_date = end_date - timedelta(days=months * 30)
         
-        logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
+        logger.info(f"Date range: {start_date.date()} to {end_date.date()} (using delayed data to avoid SIP subscription errors)")
         
         total_bars = 0
         
@@ -299,6 +392,13 @@ def collect_stock_data(symbols: List[str], months: int = 3, skip_existing: bool 
                 
                 while current_date < end_date:
                     chunk_end = min(current_date + timedelta(days=1), end_date)
+                    
+                    # CRITICAL: Skip non-trading days (weekends and holidays)
+                    if not is_trading_day(current_date):
+                        logger.debug(f"  [{symbol}] Skipping {current_date.date()} (not a trading day - weekend or holiday)")
+                        current_date = chunk_end
+                        days_processed += 1
+                        continue
                     
                     # Check if we should skip this chunk
                     start_ts = int(current_date.timestamp() * 1000)
@@ -325,10 +425,23 @@ def collect_stock_data(symbols: List[str], months: int = 3, skip_existing: bool 
                                 end=chunk_end,
                             )
                             
-                            bars_response = feed.data_client.get_stock_bars(request)
-                            return bars_response
+                            try:
+                                bars_response = feed.data_client.get_stock_bars(request)
+                                return bars_response
+                            except Exception as api_error:
+                                # If SIP subscription error, skip this chunk and continue
+                                if "subscription" in str(api_error).lower() or "SIP" in str(api_error):
+                                    logger.warning(f"  [{symbol}] Skipping {current_date.date()} - SIP subscription error (data too recent)")
+                                    return None
+                                raise
                         
                         bars_response = fetch_chunk()
+                        
+                        # Skip if None (SIP error)
+                        if bars_response is None:
+                            current_date = chunk_end
+                            days_processed += 1
+                            continue
                         
                         # Extract bars for symbol
                         symbol_bars_list = bars_response[symbol] if symbol in bars_response else []
@@ -420,7 +533,11 @@ def collect_stock_data(symbols: List[str], months: int = 3, skip_existing: bool 
 def collect_crypto_data(symbols: List[str], months: int = 3, skip_existing: bool = True):
     """Collect historical crypto data from Alpaca."""
     try:
-        from core.live.crypto_data_feed import CryptoDataFeed
+        try:
+            from core.live.crypto_data_feed import CryptoDataFeed
+        except ImportError:
+            logger.warning("Crypto data feed not available. Skipping crypto data collection.")
+            return 0
         from services.cache import BarCache
         from pathlib import Path
         
@@ -710,18 +827,13 @@ def collect_via_polygon(symbols: List[str], months: int = 3, skip_existing: bool
         
         logger.info(f"Collecting {months} months of data via Polygon for: {symbols}")
         
-        api_key = os.getenv("POLYGON_API_KEY")
-        if not api_key:
-            logger.warning("POLYGON_API_KEY not found. Skipping Polygon collection.")
-            return 0
-        
-        # Load settings for Polygon client
+        # Load settings for Polygon client (prefer config file, fallback to env)
         try:
-            settings = load_settings()
-            polygon_settings = settings.polygon
-        except:
-            from core.config import PolygonSettings
-            polygon_settings = PolygonSettings(api_key=api_key)
+            from core.config.polygon import PolygonSettings
+            polygon_settings = PolygonSettings.load()
+        except Exception as e:
+            logger.error(f"Failed to load Polygon settings: {e}")
+            return 0
         
         cache_path = Path("data/cache.db")
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -753,17 +865,84 @@ def collect_via_polygon(symbols: List[str], months: int = 3, skip_existing: bool
             while current_date < end_date:
                 chunk_end = min(current_date + timedelta(days=7), end_date)  # Weekly chunks
                 
-                # Check if we should skip this chunk
-                start_ts = int(current_date.timestamp() * 1000)
-                end_ts = int(chunk_end.timestamp() * 1000)
-                
-                if skip_existing:
-                    has_coverage, existing_count = check_cache_coverage(cache, symbol, "1min", start_ts, end_ts)
-                    if has_coverage:
-                        logger.debug(f"  [{symbol}] Skipping {current_date.date()} - {chunk_end.date()} (already cached: {existing_count} bars)")
-                        current_date = chunk_end
-                        days_processed += 7
+                # CRITICAL: Filter out non-trading days from weekly chunks
+                # Process day by day within the week to skip holidays/weekends
+                chunk_start = current_date
+                while chunk_start < chunk_end:
+                    day_end = min(chunk_start + timedelta(days=1), chunk_end)
+                    
+                    # Skip non-trading days
+                    if not is_trading_day(chunk_start):
+                        logger.debug(f"  [{symbol}] Skipping {chunk_start.date()} (not a trading day)")
+                        chunk_start = day_end
                         continue
+                    
+                    # Check if we should skip this day
+                    start_ts = int(chunk_start.timestamp() * 1000)
+                    end_ts = int(day_end.timestamp() * 1000)
+                    
+                    if skip_existing:
+                        has_coverage, existing_count = check_cache_coverage(cache, symbol, "1min", start_ts, end_ts)
+                        if has_coverage:
+                            logger.debug(f"  [{symbol}] Skipping {chunk_start.date()} (already cached: {existing_count} bars)")
+                            chunk_start = day_end
+                            continue
+                    
+                    # Fetch data for this trading day
+                    try:
+                        @retry_with_backoff(max_attempts=5, base_delay=1.0)
+                        def fetch_chunk():
+                            return client.get_historical_bars(
+                                symbol=symbol,
+                                timeframe="1min",
+                                start=chunk_start,
+                                end=day_end,
+                            )
+                        
+                        df = fetch_chunk()
+                        
+                        if df is not None and len(df) > 0:
+                            # Normalize: dedupe, normalize types, validate intervals
+                            import pandas as pd
+                            
+                            # Convert index to timestamp column if needed
+                            if isinstance(df.index, pd.DatetimeIndex):
+                                df = df.reset_index()
+                                if "timestamp" not in df.columns:
+                                    df["timestamp"] = df["index"]
+                                df = df.drop("index", axis=1, errors="ignore")
+                            
+                            # Ensure timestamp is in milliseconds
+                            if "timestamp" in df.columns:
+                                if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+                                    df["timestamp"] = (df["timestamp"].astype(int) // 10**6).astype(int)
+                            
+                            df, validation_errors = normalize_dataframe(df, asset_type="equity")
+                            
+                            if validation_errors:
+                                for error in validation_errors:
+                                    logger.warning(f"  [{symbol}] {chunk_start.date()}: {error}")
+                            
+                            # Store normalized data (Polygon client already stores, but we verify)
+                            cache.store(
+                                symbol=symbol,
+                                timeframe="1min",
+                                bars=df
+                            )
+                            stored_count += len(df)
+                            
+                            logger.info(
+                                f"  [{symbol}] {chunk_start.date()}: Stored {len(df)} bars "
+                                f"(total: {stored_count})"
+                            )
+                    
+                    except Exception as e:
+                        logger.warning(f"  [{symbol}] Error fetching {chunk_start.date()}: {e}")
+                    
+                    chunk_start = day_end
+                    days_processed += 1
+                
+                current_date = chunk_end
                 
                 try:
                     @retry_with_backoff(max_attempts=5, base_delay=1.0)
@@ -851,7 +1030,8 @@ def main():
     parser.add_argument("--stocks", nargs="+", default=["SPY", "QQQ"], help="Stock symbols")
     parser.add_argument("--crypto", nargs="+", default=["BTC/USD"], help="Crypto symbols")
     parser.add_argument("--options", nargs="+", default=["SPY"], help="Options underlying symbols")
-    parser.add_argument("--use-polygon", action="store_true", help="Use Polygon API for historical data")
+    parser.add_argument("--use-polygon", action="store_true", help="Use Polygon API for historical data (default, recommended - no SIP restrictions)")
+    parser.add_argument("--use-alpaca", action="store_true", help="Use Alpaca API instead of Polygon (not recommended - has SIP subscription limits)")
     parser.add_argument("--skip-options", action="store_true", help="Skip options data collection")
     parser.add_argument("--no-skip-existing", action="store_true", help="Re-download existing data")
     parser.add_argument("--parallel", type=int, default=0, help="Number of parallel workers (0 = sequential)")
@@ -877,17 +1057,24 @@ def main():
     total_collected = 0
     
     # Collect stock data
-    if args.use_polygon:
-        logger.info("Using Polygon API for historical data collection")
-        stock_bars = collect_via_polygon(args.stocks, args.months, skip_existing)
-        total_collected += stock_bars
-    else:
+    # Polygon is default (no SIP restrictions, better historical data)
+    if args.use_alpaca:
+        logger.info("Using Alpaca API for historical data collection (note: has SIP subscription limits)")
         stock_bars = collect_stock_data(args.stocks, args.months, skip_existing)
         total_collected += stock_bars
+    else:
+        logger.info("Using Polygon API for historical data collection (recommended - no SIP restrictions)")
+        stock_bars = collect_via_polygon(args.stocks, args.months, skip_existing)
+        total_collected += stock_bars
     
-    # Collect crypto data
-    crypto_bars = collect_crypto_data(args.crypto, args.months, skip_existing)
-    total_collected += crypto_bars
+    # Collect crypto data (optional - skip if module not available)
+    crypto_bars = 0
+    if args.crypto:
+        try:
+            crypto_bars = collect_crypto_data(args.crypto, args.months, skip_existing)
+            total_collected += crypto_bars
+        except Exception as e:
+            logger.warning(f"Skipping crypto data collection: {e}")
     
     # Collect options data
     options_chains = 0
@@ -909,7 +1096,7 @@ def main():
             "options": args.options if not args.skip_options else []
         },
         "bar_interval": "1min",
-        "api_source": "polygon" if args.use_polygon else "alpaca",
+        "api_source": "alpaca" if args.use_alpaca else "polygon",
         "collection_stats": {
             "stock_bars": stock_bars,
             "crypto_bars": crypto_bars,

@@ -75,3 +75,4 @@ The widget already includes:
 
 **Bottom line**: Your current setup is perfect and doesn't need any TradingView credentials! 🎉
 
+

@@ -158,3 +158,4 @@ tail -f /tmp/futbot_server.log | grep -E "LiveLoop|CachedDataFeed|Processed bar"
 
 The simulation loop is now production-ready for offline/historical replay!
 
+

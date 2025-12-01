@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, FileResponse, JSONResponse
 from pydantic import BaseModel
 import json
+import yaml
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,6 +35,10 @@ from ui.visualizations import (
     plot_regime_distribution,
     plot_volatility_pnl_heatmap,
     plot_weight_evolution,
+    render_options_equity_curve,
+    render_options_drawdown,
+    render_options_pnl_by_symbol,
+    render_options_vs_stock_equity,
 )
 
 
@@ -116,79 +121,145 @@ class TradeLogResponse(BaseModel):
     total_count: int
 
 
-# Global bot manager instance (will be initialized by startup)
+# Global bot manager instance (will be initialized lazily on first request)
 bot_manager: Optional[BotManager] = None
 data_collector = None  # Will be initialized if needed
+
+def _initialize_bot_manager() -> BotManager:
+    """Lazy initialization of bot manager (prevents startup freeze)."""
+    global bot_manager
+    if bot_manager is not None:
+        return bot_manager
+    
+    try:
+        from core.agents.fvg_agent import FVGAgent
+        from core.agents.mean_reversion_agent import MeanReversionAgent
+        from core.agents.trend_agent import TrendAgent
+        from core.agents.volatility_agent import VolatilityAgent
+        from core.settings_loader import load_settings
+        from core.policy.controller import MetaPolicyController
+        from core.policy_adaptation.adaptor import PolicyAdaptor
+        from core.portfolio.manager import PortfolioManager
+        from core.regime.engine import RegimeEngine
+        from core.reward.memory import RollingMemoryStore
+        from core.reward.tracker import RewardTracker
+        from core.risk.advanced import AdvancedRiskConfig, AdvancedRiskManager
+        from core.risk.manager import RiskConfig, RiskManager
+        
+        symbol = "QQQ"
+        initial_capital = 100000.0
+        
+        # Initialize components
+        regime_engine = RegimeEngine()
+        controller = MetaPolicyController()
+        
+        # Initialize options data feed for real options trading
+        options_data_feed = None
+        try:
+            import os
+            from services.options_data_feed import OptionsDataFeed
+            
+            # Try Alpaca first, then Polygon
+            alpaca_key = os.getenv("ALPACA_API_KEY")
+            alpaca_secret = os.getenv("ALPACA_API_SECRET")
+            polygon_key = os.getenv("POLYGON_API_KEY") or os.getenv("MASSIVE_API_KEY")
+            
+            if alpaca_key and alpaca_secret:
+                options_data_feed = OptionsDataFeed(
+                    api_provider="alpaca",
+                    api_key=alpaca_key,
+                    api_secret=alpaca_secret,
+                )
+                logger.info("✅ Options data feed initialized (Alpaca)")
+            elif polygon_key:
+                options_data_feed = OptionsDataFeed(
+                    api_provider="polygon",
+                    api_key=polygon_key,
+                )
+                logger.info("✅ Options data feed initialized (Polygon)")
+            else:
+                logger.warning("⚠️ No options API credentials found - options agent will use synthetic pricing")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize options data feed: {e} - options agent will use synthetic pricing")
+        
+        # Create base agents
+        base_agents = [
+            TrendAgent(symbol=symbol),
+            MeanReversionAgent(symbol=symbol),
+            VolatilityAgent(symbol=symbol),
+            FVGAgent(symbol=symbol),
+        ]
+        
+        # Add options agent with real data feed if available
+        from core.agents.options_agent import OptionsAgent
+        from core.config.asset_profiles import OptionRiskProfile
+        
+        # PERFORMANCE: Enable testing_mode for 0DTE trading and lower thresholds
+        option_risk_profile = OptionRiskProfile(
+            testing_mode=True,  # Enable aggressive 0DTE trading
+            min_dte_for_entry=0,  # Allow 0DTE
+            max_dte_for_entry=45,
+            min_iv_percentile=0.0,  # No IV filter in testing mode
+            max_iv_percentile=100.0,
+            max_spread_pct=20.0,  # More lenient spread
+            min_open_interest=10,  # Lower OI requirement
+            min_volume=1,  # Lower volume requirement
+        )
+        options_agent = OptionsAgent(
+            symbol=symbol,
+            options_data_feed=options_data_feed,  # Real options data feed
+            option_risk_profile=option_risk_profile,
+            config={"min_confidence": 0.30},  # Lower confidence threshold for more trades
+        )
+        
+        agents = base_agents + [options_agent]
+        logger.info(f"✅ Created {len(agents)} agents (including options agent with {'real' if options_data_feed else 'synthetic'} data)")
+        
+        portfolio = PortfolioManager(initial_capital=initial_capital, symbol=symbol)
+        risk_manager = RiskManager(initial_capital=initial_capital)
+        advanced_risk = AdvancedRiskManager(initial_capital=initial_capital)
+        
+        # Reward and adaptation
+        memory_store = RollingMemoryStore()
+        reward_tracker = RewardTracker(memory_store=memory_store)
+        adaptor = PolicyAdaptor(memory_store=memory_store)
+        
+        # Update controller with adaptor
+        controller = MetaPolicyController(adaptor=adaptor)
+        
+        # Create bot manager
+        bot_manager = BotManager(
+            agents=agents,
+            regime_engine=regime_engine,
+            controller=controller,
+            portfolio=portfolio,
+            risk_manager=risk_manager,
+            reward_tracker=reward_tracker,
+            adaptor=adaptor,
+            advanced_risk_manager=advanced_risk,
+        )
+        
+        logger.info("✅ Bot manager initialized (lazy initialization)")
+        return bot_manager
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize bot manager: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to initialize bot manager: {str(e)}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
-    # Startup
+    # Startup - LAZY INITIALIZATION (don't initialize BotManager here to prevent startup freeze)
     global bot_manager
     
-    # Initialize bot manager if not already set
-    if bot_manager is None:
-        try:
-            from core.agents.fvg_agent import FVGAgent
-            from core.agents.mean_reversion_agent import MeanReversionAgent
-            from core.agents.trend_agent import TrendAgent
-            from core.agents.volatility_agent import VolatilityAgent
-            from core.settings_loader import load_settings
-            from core.policy.controller import MetaPolicyController
-            from core.policy_adaptation.adaptor import PolicyAdaptor
-            from core.portfolio.manager import PortfolioManager
-            from core.regime.engine import RegimeEngine
-            from core.reward.memory import RollingMemoryStore
-            from core.reward.tracker import RewardTracker
-            from core.risk.advanced import AdvancedRiskConfig, AdvancedRiskManager
-            from core.risk.manager import RiskConfig, RiskManager
-            
-            symbol = "QQQ"
-            initial_capital = 100000.0
-            
-            # Initialize components
-            regime_engine = RegimeEngine()
-            controller = MetaPolicyController()
-            
-            agents = [
-                TrendAgent(symbol=symbol),
-                MeanReversionAgent(symbol=symbol),
-                VolatilityAgent(symbol=symbol),
-                FVGAgent(symbol=symbol),
-            ]
-            
-            portfolio = PortfolioManager(initial_capital=initial_capital, symbol=symbol)
-            risk_manager = RiskManager(initial_capital=initial_capital)
-            advanced_risk = AdvancedRiskManager(initial_capital=initial_capital)
-            
-            # Reward and adaptation
-            memory_store = RollingMemoryStore()
-            reward_tracker = RewardTracker(memory_store=memory_store)
-            adaptor = PolicyAdaptor(memory_store=memory_store)
-            
-            # Update controller with adaptor
-            controller = MetaPolicyController(adaptor=adaptor)
-            
-            # Create bot manager
-            bot_manager = BotManager(
-                agents=agents,
-                regime_engine=regime_engine,
-                controller=controller,
-                portfolio=portfolio,
-                risk_manager=risk_manager,
-                reward_tracker=reward_tracker,
-                adaptor=adaptor,
-                advanced_risk_manager=advanced_risk,
-            )
-            
-            logger.info("Bot manager initialized in lifespan startup")
-        except Exception as e:
-            logger.error(f"Failed to initialize bot manager: {e}", exc_info=True)
-            # Continue without bot manager - some endpoints will return errors
+    # DO NOT initialize bot_manager here - it will be initialized lazily on first request
+    # This prevents the server from freezing during startup
+    logger.info("✅ Server started (lazy initialization enabled)")
     
     yield
     # Shutdown (if needed)
+    if bot_manager:
+        logger.info("Shutting down bot manager...")
 
 
 app = FastAPI(
@@ -334,14 +405,49 @@ async def dashboard(v: Optional[str] = None):
     raise HTTPException(status_code=404, detail="Dashboard not found")
 
 
+# Cache for health endpoint to prevent repeated heavy calculations
+_health_cache = {"data": None, "timestamp": 0, "ttl": 2.0}  # 2 second cache
+
 @app.get("/health", response_model=HealthResponse)
 async def get_health():
-    """Get bot health status."""
+    """Get bot health status (cached for 2 seconds to prevent blocking)."""
+    import time
+    current_time = time.time()
+    
+    # Return cached data if still valid
+    if (_health_cache["data"] and 
+        (current_time - _health_cache["timestamp"]) < _health_cache["ttl"]):
+        return HealthResponse(**_health_cache["data"])
+    
+    # Lazy initialization - initialize bot_manager on first request
     if not bot_manager:
-        raise HTTPException(status_code=503, detail="Bot manager not initialized")
-    health = bot_manager.get_health_status()
-    status = "healthy" if health["is_running"] and not health.get("error") else "unhealthy"
-    return HealthResponse(status=status, **health)
+        _initialize_bot_manager()
+    
+    try:
+        health = bot_manager.get_health_status()
+        status = "healthy" if health["is_running"] and not health.get("error") else "unhealthy"
+        result = {"status": status, **health}
+        
+        # Update cache
+        _health_cache["data"] = result
+        _health_cache["timestamp"] = current_time
+        
+        return HealthResponse(**result)
+    except Exception as e:
+        logger.error(f"Error getting health status: {e}", exc_info=True)
+        # Return cached data if available, otherwise return error response
+        if _health_cache["data"]:
+            return HealthResponse(**_health_cache["data"])
+        return HealthResponse(
+            status="unhealthy",
+            is_running=False,
+            is_paused=False,
+            bar_count=0,
+            last_update=None,
+            error=str(e),
+            risk_status={},
+            portfolio_healthy=False,
+        )
 
 
 @app.get("/regime", response_model=RegimeResponse)
@@ -427,11 +533,37 @@ async def get_trade_log(limit: int = 50):
     if not bot_manager:
         raise HTTPException(status_code=503, detail="Bot manager not initialized")
     trades = bot_manager.get_recent_trades(limit)
-    trade_dicts = [
-        {
+    
+    # CRITICAL FIX: Convert timestamps to EST for display
+    try:
+        from zoneinfo import ZoneInfo
+        est = ZoneInfo('America/New_York')
+    except ImportError:
+        import pytz
+        est = pytz.timezone('America/New_York')
+    
+    trade_dicts = []
+    for t in trades:
+        # Convert entry_time to EST
+        if t.entry_time.tzinfo is None:
+            entry_time_utc = t.entry_time.replace(tzinfo=timezone.utc)
+        else:
+            entry_time_utc = t.entry_time.astimezone(timezone.utc)
+        entry_time_est = entry_time_utc.astimezone(est)
+        
+        # Convert exit_time to EST
+        if t.exit_time.tzinfo is None:
+            exit_time_utc = t.exit_time.replace(tzinfo=timezone.utc)
+        else:
+            exit_time_utc = t.exit_time.astimezone(timezone.utc)
+        exit_time_est = exit_time_utc.astimezone(est)
+        
+        trade_dicts.append({
             "symbol": t.symbol,
-            "entry_time": t.entry_time.isoformat(),
-            "exit_time": t.exit_time.isoformat(),
+            "entry_time": entry_time_est.strftime("%Y-%m-%dT%H:%M:%S%z"),  # EST format
+            "exit_time": exit_time_est.strftime("%Y-%m-%dT%H:%M:%S%z"),  # EST format
+            "entry_time_est": entry_time_est.strftime("%Y-%m-%d %I:%M:%S %p %Z"),  # Human-readable EST
+            "exit_time_est": exit_time_est.strftime("%Y-%m-%d %I:%M:%S %p %Z"),  # Human-readable EST
             "entry_price": t.entry_price,
             "exit_price": t.exit_price,
             "quantity": t.quantity,
@@ -439,10 +571,213 @@ async def get_trade_log(limit: int = 50):
             "pnl_pct": t.pnl_pct,
             "reason": t.reason,
             "agent": t.agent,
-        }
-        for t in trades
-    ]
+        })
     return TradeLogResponse(trades=trade_dicts, total_count=len(trade_dicts))
+
+
+@app.get("/trades/roundtrips")
+async def get_roundtrip_trades(
+    symbol: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 100
+):
+    """
+    Get round-trip trades with detailed entry/exit information.
+    
+    Each trade represents a complete round-trip (entry + exit) with:
+    - Entry time and price
+    - Exit time and price
+    - Quantity and direction
+    - P&L (gross and percentage)
+    - Reason and agent
+    
+    Query parameters:
+    - symbol: Filter by symbol (e.g., "QQQ", "SPY")
+    - start_date: Filter from date (ISO format, e.g., "2025-11-26T00:00:00Z")
+    - end_date: Filter to date (ISO format)
+    - limit: Maximum number of trades to return (default: 100)
+    """
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    
+    # Parse dates if provided
+    start_dt = None
+    end_dt = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid start_date format: {start_date}. Use ISO format.")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid end_date format: {end_date}. Use ISO format.")
+    
+    trades = bot_manager.get_roundtrip_trades(
+        symbol=symbol,
+        start_date=start_dt,
+        end_date=end_dt,
+        limit=limit
+    )
+    
+    # Format trades with additional calculated fields
+    trade_dicts = []
+    for t in trades:
+        # Calculate duration
+        duration = t.exit_time - t.entry_time
+        duration_minutes = duration.total_seconds() / 60.0
+        
+        # Determine direction
+        direction = "LONG" if t.quantity > 0 else "SHORT"
+        
+        # CRITICAL FIX: Convert timestamps to EST and validate trading hours
+        from datetime import timezone
+        import pytz
+        
+        est = pytz.timezone('America/New_York')
+        
+        # Convert entry_time to EST
+        if t.entry_time.tzinfo is None:
+            entry_time_utc = t.entry_time.replace(tzinfo=timezone.utc)
+        else:
+            entry_time_utc = t.entry_time.astimezone(timezone.utc)
+        entry_time_est = entry_time_utc.astimezone(est)
+        
+        # Convert exit_time to EST
+        if t.exit_time.tzinfo is None:
+            exit_time_utc = t.exit_time.replace(tzinfo=timezone.utc)
+        else:
+            exit_time_utc = t.exit_time.astimezone(timezone.utc)
+        exit_time_est = exit_time_utc.astimezone(est)
+        
+        # Validate trading hours (9:30 AM - 4:00 PM EST)
+        entry_hour = entry_time_est.hour
+        entry_minute = entry_time_est.minute
+        exit_hour = exit_time_est.hour
+        exit_minute = exit_time_est.minute
+        
+        # Check if within market hours
+        entry_in_hours = (entry_hour == 9 and entry_minute >= 30) or (9 < entry_hour < 16) or (entry_hour == 16 and exit_minute == 0)
+        exit_in_hours = (exit_hour == 9 and exit_minute >= 30) or (9 < exit_hour < 16) or (exit_hour == 16 and exit_minute == 0)
+        
+        trade_dicts.append({
+            "symbol": t.symbol,
+            "direction": direction,
+            "entry_time": entry_time_est.strftime("%Y-%m-%dT%H:%M:%S%z"),  # EST format
+            "exit_time": exit_time_est.strftime("%Y-%m-%dT%H:%M:%S%z"),  # EST format
+            "entry_time_est": entry_time_est.strftime("%Y-%m-%d %I:%M:%S %p %Z"),  # Human-readable EST
+            "exit_time_est": exit_time_est.strftime("%Y-%m-%d %I:%M:%S %p %Z"),  # Human-readable EST
+            "entry_price": round(t.entry_price, 2),
+            "exit_price": round(t.exit_price, 2),
+            "quantity": abs(round(t.quantity, 6)),
+            "gross_pnl": round(t.pnl, 2),
+            "pnl_pct": round(t.pnl_pct, 2),
+            "duration_minutes": round(duration_minutes, 2),
+            "reason": t.reason,
+            "agent": t.agent,
+            "regime_at_entry": t.regime_at_entry,
+            "vol_bucket_at_entry": t.vol_bucket_at_entry,
+            "entry_in_trading_hours": entry_in_hours,
+            "exit_in_trading_hours": exit_in_hours,
+        })
+    
+    return {
+        "trades": trade_dicts,
+        "total_count": len(trade_dicts),
+        "filters": {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    }
+
+
+@app.get("/trades/options/roundtrips")
+async def get_options_roundtrip_trades(
+    symbol: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 100
+):
+    """
+    Get round-trip options trades with detailed entry/exit information.
+    
+    Each trade represents a complete options round-trip (entry + exit) with:
+    - Entry time and premium
+    - Exit time and premium
+    - Option type (call/put)
+    - Strike and expiration
+    - Quantity (contracts)
+    - P&L (gross and percentage)
+    - Reason and agent
+    - Regime & volatility at entry
+    
+    Query parameters:
+    - symbol: Filter by underlying symbol (e.g., "QQQ", "SPY")
+    - start_date: Filter from date (ISO format, e.g., "2025-11-26T00:00:00Z")
+    - end_date: Filter to date (ISO format)
+    - limit: Maximum number of trades to return (default: 100)
+    """
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    
+    # Parse dates if provided
+    start_dt = None
+    end_dt = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid start_date format: {start_date}. Use ISO format.")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid end_date format: {end_date}. Use ISO format.")
+    
+    trades = bot_manager.get_options_roundtrip_trades(
+        symbol=symbol,
+        start_date=start_dt,
+        end_date=end_dt,
+        limit=limit
+    )
+    
+    # Format trades with additional calculated fields
+    trade_dicts = []
+    for t in trades:
+        trade_dicts.append({
+            "symbol": t.symbol,
+            "option_symbol": t.option_symbol,
+            "option_type": t.option_type,
+            "strike": round(t.strike, 2),
+            "expiration": t.expiration.isoformat(),
+            "quantity": round(t.quantity, 4),  # Number of contracts
+            "entry_time": t.entry_time.isoformat(),
+            "exit_time": t.exit_time.isoformat(),
+            "entry_price": round(t.entry_price, 4),  # Premium per contract
+            "exit_price": round(t.exit_price, 4),
+            "gross_pnl": round(t.pnl, 2),
+            "pnl_pct": round(t.pnl_pct, 2),
+            "duration_minutes": round(t.duration_minutes, 2),
+            "reason": t.reason,
+            "agent": t.agent,
+            "delta_at_entry": round(t.delta_at_entry, 4),
+            "iv_at_entry": round(t.iv_at_entry, 4),
+            "regime_at_entry": t.regime_at_entry,
+            "vol_bucket_at_entry": t.vol_bucket_at_entry,
+        })
+    
+    return {
+        "trades": trade_dicts,
+        "total_count": len(trade_dicts),
+        "filters": {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    }
 
 
 @app.get("/regime-performance")
@@ -665,6 +1000,61 @@ async def get_dashboard():
     return HTMLResponse(content=html)
 
 
+@app.get("/visualizations/options-equity-curve")
+async def get_options_equity_curve():
+    """Get options equity curve plot as PNG."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    import base64
+    equity_history = bot_manager.get_options_equity_history()
+    initial_capital = bot_manager.options_initial_capital if bot_manager.options_initial_capital > 0 else 10000.0
+    img_base64 = render_options_equity_curve(equity_history, initial_capital)
+    img_bytes = base64.b64decode(img_base64)
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@app.get("/visualizations/options-drawdown")
+async def get_options_drawdown():
+    """Get options drawdown chart as PNG."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    import base64
+    equity_history = bot_manager.get_options_equity_history()
+    initial_capital = bot_manager.options_initial_capital if bot_manager.options_initial_capital > 0 else 10000.0
+    img_base64 = render_options_drawdown(equity_history, initial_capital)
+    img_bytes = base64.b64decode(img_base64)
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@app.get("/visualizations/options-pnl-by-symbol")
+async def get_options_pnl_by_symbol():
+    """Get options P&L by symbol bar chart as PNG."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    import base64
+    pnl_by_symbol = bot_manager.get_options_pnl_by_symbol()
+    img_base64 = render_options_pnl_by_symbol(pnl_by_symbol)
+    img_bytes = base64.b64decode(img_base64)
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@app.get("/visualizations/options-vs-stock")
+async def get_options_vs_stock_equity():
+    """Get options vs stock equity comparison chart as PNG."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    import base64
+    stock_equity_curve = list(bot_manager.portfolio.equity_curve) if bot_manager.portfolio.equity_curve else []
+    options_equity_history = bot_manager.get_options_equity_history()
+    stock_initial_capital = bot_manager.portfolio.initial_capital
+    options_initial_capital = bot_manager.options_initial_capital if bot_manager.options_initial_capital > 0 else 10000.0
+    img_base64 = render_options_vs_stock_equity(
+        stock_equity_curve, options_equity_history, stock_initial_capital, options_initial_capital
+    )
+    img_bytes = base64.b64decode(img_base64)
+    return Response(content=img_bytes, media_type="image/png")
+
+
 # Live Trading Endpoints
 class LiveStartRequest(BaseModel):
     """Request to start live trading."""
@@ -677,6 +1067,7 @@ class LiveStartRequest(BaseModel):
     end_time: Optional[str] = None  # End datetime (YYYY-MM-DDTHH:MM:SS) for time-windowed simulation
     replay_speed: Optional[float] = 600.0  # Replay speed multiplier: 1.0 = real-time, 600.0 = 600x speed (0.1s per bar)
     testing_mode: bool = False  # Force trading mode - allows trading with minimal bars (1 bar minimum)
+    strict_data_mode: bool = False  # If True, fail hard when cached data is missing (production safety)
     # Alpaca credentials
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
@@ -691,8 +1082,9 @@ class LiveStartRequest(BaseModel):
 @app.post("/live/start")
 async def start_live_trading(request: LiveStartRequest):
     """Start live trading."""
+    # Lazy initialization - initialize bot_manager on first request
     if not bot_manager:
-        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+        _initialize_bot_manager()
 
     from core.live import (
         AlpacaBrokerClient,
@@ -872,6 +1264,10 @@ async def start_live_trading(request: LiveStartRequest):
                 start_date=start_datetime_obj,
                 end_date=end_datetime_obj,
             )
+            # Set strict_data_mode if requested (production safety)
+            if request.strict_data_mode:
+                data_feed.strict_data_mode = True
+                logger.info("🔒 Strict data mode enabled - will fail hard if cached data is missing")
             logger.info(f"✅ CachedDataFeed created successfully for symbols: {request.symbols}")
         except Exception as e:
             logger.error(f"❌ Failed to create CachedDataFeed: {e}", exc_info=True)
@@ -982,7 +1378,11 @@ async def start_live_trading(request: LiveStartRequest):
         logger.info(f"✅ bot_manager.start_live_trading() completed successfully")
         return {"status": "started", "message": "Live trading started successfully"}
     except ValueError as e:
+        logger.error(f"❌ ValueError starting live trading: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Unexpected error starting live trading: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start live trading: {str(e)}")
 
 
 @app.post("/live/stop")
@@ -992,6 +1392,480 @@ async def stop_live_trading():
         raise HTTPException(status_code=503, detail="Bot manager not initialized")
     bot_manager.stop_live_trading()
     return {"status": "stopped", "message": "Live trading stopped successfully"}
+
+
+@app.get("/cache/available-dates")
+async def get_available_cached_dates(
+    symbols: Optional[str] = None,
+    timeframe: str = "1min",
+    interval_minutes: int = 30
+):
+    """
+    Get available dates and times from cache (REAL DATA ONLY).
+    Returns only dates/times where cached data actually exists.
+    Times are rounded to 30-minute intervals by default (9:30, 10:00, 10:30, etc.).
+    
+    Query parameters:
+    - symbols: Comma-separated list of symbols (e.g., "SPY,QQQ"). Defaults to SPY,QQQ if not provided.
+    - timeframe: Timeframe to check (default: "1min")
+    - interval_minutes: Round times to this interval (default: 30 for 30-minute intervals)
+    
+    Returns:
+    {
+        "available_dates": [
+            {
+                "date": "2025-11-24",
+                "times": ["09:30", "10:00", "10:30", ...],
+                "display": "Mon, Nov 24, 2025"
+            },
+            ...
+        ],
+        "symbols": ["SPY", "QQQ"],
+        "timeframe": "1min",
+        "interval_minutes": 30,
+        "total_dates": 10
+    }
+    """
+    from pathlib import Path
+    from services.cache import BarCache
+    from core.settings_loader import load_settings
+    from datetime import datetime
+    
+    try:
+        # Get cache path from settings
+        settings = load_settings()
+        cache_path = Path(settings.data.cache.path)
+        
+        # Parse symbols
+        if symbols:
+            symbol_list = [s.strip().upper() for s in symbols.split(",")]
+        else:
+            # Default to SPY and QQQ
+            symbol_list = ["SPY", "QQQ"]
+        
+        # Get available dates from cache (with 30-minute interval rounding)
+        cache = BarCache(cache_path)
+        available_dates = cache.get_available_dates(symbol_list, timeframe, interval_minutes=interval_minutes)
+        
+        # CRITICAL: Filter out market holidays and non-trading days
+        # Get market calendar to validate trading days
+        from datetime import timezone, timedelta
+        
+        # Get date range from available dates
+        if available_dates:
+            min_date = min(datetime.strptime(d["date"], "%Y-%m-%d") for d in available_dates)
+            max_date = max(datetime.strptime(d["date"], "%Y-%m-%d") for d in available_dates)
+            
+            # Get known holidays for this date range
+            known_holidays = _get_known_holidays(min_date.replace(tzinfo=timezone.utc), max_date.replace(tzinfo=timezone.utc))
+            logger.info(f"Filtering out holidays: {sorted(known_holidays)}")
+        else:
+            known_holidays = set()
+        
+        # Format for frontend and filter holidays
+        formatted_dates = []
+        for date_info in available_dates:
+            date_str = date_info["date"]
+            
+            # SKIP if this is a known market holiday
+            if date_str in known_holidays:
+                logger.debug(f"Skipping holiday: {date_str}")
+                continue
+            
+            # SKIP if this is a weekend (Saturday=5, Sunday=6)
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            if date_obj.weekday() >= 5:  # Saturday or Sunday
+                logger.debug(f"Skipping weekend: {date_str}")
+                continue
+            
+            times = date_info["times"]
+            
+            # Format display string
+            display_str = date_obj.strftime("%a, %b %d, %Y")
+            
+            # Generate date/time options for this date
+            date_time_options = []
+            for time_str in sorted(times):
+                # Times are already filtered to market hours and rounded to interval
+                hour, minute = map(int, time_str.split(":"))
+                
+                # Format time display
+                if hour < 12:
+                    time_display = f"{hour}:{minute:02d} AM" if hour != 0 else f"12:{minute:02d} AM"
+                elif hour == 12:
+                    time_display = f"12:{minute:02d} PM"
+                else:
+                    time_display = f"{hour-12}:{minute:02d} PM"
+                
+                date_time_options.append({
+                    "value": f"{date_str}T{time_str}:00",
+                    "display": f"{display_str} {time_display}"
+                })
+            
+            if date_time_options:  # Only add if there are valid market hours
+                formatted_dates.append({
+                    "date": date_str,
+                    "times": sorted(times),
+                    "display": display_str,
+                    "options": date_time_options
+                })
+        
+        return {
+            "available_dates": formatted_dates,
+            "symbols": symbol_list,
+            "timeframe": timeframe,
+            "interval_minutes": interval_minutes,
+            "total_dates": len(formatted_dates)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting available cached dates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error querying cache: {str(e)}")
+
+
+@app.get("/market/calendar")
+async def get_market_calendar(start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """
+    Get market calendar with actual trading days and early closes from Alpaca.
+    Returns dates that have actual trading data.
+    """
+    from datetime import datetime, timezone, timedelta
+    import os
+    
+    # Default to last 3 months
+    if not end_date:
+        end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        
+        api_key = os.getenv("ALPACA_API_KEY")
+        api_secret = os.getenv("ALPACA_SECRET_KEY")
+        
+        if not api_key or not api_secret:
+            # Fallback: return basic weekday calendar without holidays
+            logger.warning("Alpaca credentials not found, using basic calendar")
+            return await _get_basic_calendar(start_date, end_date)
+        
+        client = StockHistoricalDataClient(api_key=api_key, secret_key=api_secret)
+        
+        # Query SPY (most liquid) to get actual trading days
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        
+        request = StockBarsRequest(
+            symbol_or_symbols="SPY",
+            timeframe=TimeFrame.Day,
+            start=start_dt,
+            end=end_dt,
+        )
+        
+        # Get known holidays and early closes FIRST
+        known_holidays = _get_known_holidays(start_dt, end_dt)
+        early_close_dates = _get_known_early_closes(start_dt, end_dt)
+        
+        logger.info(f"Known holidays: {sorted(known_holidays)}")
+        logger.info(f"Early closes: {early_close_dates}")
+        
+        # Check if we're querying future dates (beyond today's date)
+        now = datetime.now(timezone.utc)
+        is_future_query = start_dt.date() > now.date()
+        
+        if is_future_query:
+            # For future dates, build calendar from weekdays and apply holiday/early close rules
+            logger.info("Querying future dates - using calendar rules instead of Alpaca data")
+            from datetime import date, timedelta
+            trading_dates = {}
+            current = start_dt.date()
+            end_date_obj = end_dt.date()
+            
+            while current <= end_date_obj:
+                # Only weekdays
+                if current.weekday() < 5:
+                    date_str = current.strftime("%Y-%m-%d")
+                    # Skip holidays
+                    if date_str not in known_holidays:
+                        is_early_close = date_str in early_close_dates
+                        close_time = early_close_dates.get(date_str, "16:00")
+                        trading_dates[date_str] = {
+                            "date": date_str,
+                            "is_trading_day": True,
+                            "early_close": is_early_close,
+                            "close_time": close_time
+                        }
+                current += timedelta(days=1)
+        else:
+            # For past dates, use Alpaca data but filter holidays
+            bars = client.get_stock_bars(request)
+            # Alpaca returns BarSet, which can be accessed like a dict
+            if hasattr(bars, 'get'):
+                spy_bars = bars.get("SPY", [])
+            elif hasattr(bars, '__iter__'):
+                spy_bars = list(bars)
+            else:
+                spy_bars = []
+            
+            # Extract unique trading dates, filtering out holidays
+            trading_dates = {}
+            for bar in spy_bars:
+                # Bar timestamp is in UTC, convert to date string
+                if hasattr(bar.timestamp, 'date'):
+                    bar_date = bar.timestamp.date()
+                elif isinstance(bar.timestamp, datetime):
+                    bar_date = bar.timestamp.date()
+                else:
+                    try:
+                        bar_date = datetime.fromisoformat(str(bar.timestamp).replace('Z', '+00:00')).date()
+                    except:
+                        logger.warning(f"Could not parse bar timestamp: {bar.timestamp}")
+                        continue
+                
+                date_str = bar_date.strftime("%Y-%m-%d")
+                
+                # Skip known holidays (even if Alpaca returns bars)
+                if date_str in known_holidays:
+                    logger.info(f"Skipping holiday: {date_str}")
+                    continue
+                
+                # Check if it's an early close
+                is_early_close = date_str in early_close_dates
+                close_time = early_close_dates.get(date_str, "16:00")
+                
+                trading_dates[date_str] = {
+                    "date": date_str,
+                    "is_trading_day": True,
+                    "early_close": is_early_close,
+                    "close_time": close_time
+                }
+        
+        # CRITICAL: After processing, ensure we haven't included any holidays
+        # Remove any holidays that might have slipped through (Alpaca sometimes returns bars for holidays)
+        logger.info(f"Before cleanup: {len(trading_dates)} trading dates")
+        holidays_removed = []
+        for holiday_date in known_holidays:
+            if holiday_date in trading_dates:
+                logger.warning(f"⚠️ Removing holiday that was in data: {holiday_date}")
+                del trading_dates[holiday_date]
+                holidays_removed.append(holiday_date)
+        
+        if holidays_removed:
+            logger.info(f"Removed {len(holidays_removed)} holidays: {holidays_removed}")
+        
+        # Also ensure early closes are properly marked (override any incorrect data from Alpaca)
+        early_closes_marked = []
+        for early_close_date, close_time in early_close_dates.items():
+            if early_close_date in trading_dates:
+                trading_dates[early_close_date]["early_close"] = True
+                trading_dates[early_close_date]["close_time"] = close_time
+                early_closes_marked.append(early_close_date)
+                logger.info(f"✅ Marked early close: {early_close_date} at {close_time}")
+        
+        if early_closes_marked:
+            logger.info(f"Marked {len(early_closes_marked)} early closes: {early_closes_marked}")
+        
+        logger.info(f"After cleanup: {len(trading_dates)} trading dates")
+        
+        return {
+            "trading_dates": list(trading_dates.keys()),
+            "calendar": trading_dates,
+            "start_date": start_date,
+            "end_date": end_date
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching market calendar from Alpaca: {e}")
+        logger.info("Falling back to basic calendar with holiday filtering")
+        # Fallback to basic calendar BUT still apply holiday/early close rules
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        known_holidays = _get_known_holidays(start_dt, end_dt)
+        early_close_dates = _get_known_early_closes(start_dt, end_dt)
+        
+        # Get basic calendar
+        basic_cal = await _get_basic_calendar(start_date, end_date)
+        
+        # Apply holiday filtering
+        trading_dates = basic_cal["calendar"]
+        for holiday_date in known_holidays:
+            if holiday_date in trading_dates:
+                logger.info(f"Removing holiday from fallback calendar: {holiday_date}")
+                del trading_dates[holiday_date]
+        
+        # Apply early close rules
+        for early_close_date, close_time in early_close_dates.items():
+            if early_close_date in trading_dates:
+                trading_dates[early_close_date]["early_close"] = True
+                trading_dates[early_close_date]["close_time"] = close_time
+                logger.info(f"Marked early close in fallback: {early_close_date} at {close_time}")
+        
+        return {
+            "trading_dates": list(trading_dates.keys()),
+            "calendar": trading_dates,
+            "start_date": start_date,
+            "end_date": end_date
+        }
+
+
+async def _get_basic_calendar(start_date: str, end_date: str):
+    """Fallback: Generate basic weekday calendar without holidays."""
+    from datetime import datetime, timedelta
+    
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    
+    trading_dates = {}
+    current = start_dt
+    while current <= end_dt:
+        # Only weekdays
+        if current.weekday() < 5:  # Monday=0, Friday=4
+            date_str = current.strftime("%Y-%m-%d")
+            trading_dates[date_str] = {
+                "date": date_str,
+                "is_trading_day": True,
+                "early_close": False,
+                "close_time": "16:00"
+            }
+        current += timedelta(days=1)
+    
+    return {
+        "trading_dates": list(trading_dates.keys()),
+        "calendar": trading_dates,
+        "start_date": start_date,
+        "end_date": end_date
+    }
+
+
+def _get_known_holidays(start_dt: datetime, end_dt: datetime) -> set:
+    """Get known market holidays (market closed)."""
+    from datetime import date, timedelta
+    holidays = set()
+    
+    # Get all years in range
+    years = set()
+    current = start_dt
+    while current <= end_dt:
+        years.add(current.year)
+        current += timedelta(days=365)
+    
+    for year in years:
+        # New Year's Day (Jan 1, or Monday if Jan 1 is weekend)
+        jan_1 = date(year, 1, 1)
+        if jan_1.weekday() == 5:  # Saturday
+            holidays.add((jan_1 + timedelta(days=2)).strftime("%Y-%m-%d"))  # Monday
+        elif jan_1.weekday() == 6:  # Sunday
+            holidays.add((jan_1 + timedelta(days=1)).strftime("%Y-%m-%d"))  # Monday
+        else:
+            holidays.add(jan_1.strftime("%Y-%m-%d"))
+        
+        # Martin Luther King Jr. Day (3rd Monday in January)
+        jan_1 = date(year, 1, 1)
+        days_until_monday = (0 - jan_1.weekday()) % 7
+        first_monday = jan_1 + timedelta(days=days_until_monday)
+        mlk_day = first_monday + timedelta(days=14)  # 3rd Monday
+        holidays.add(mlk_day.strftime("%Y-%m-%d"))
+        
+        # Presidents Day (3rd Monday in February)
+        feb_1 = date(year, 2, 1)
+        days_until_monday = (0 - feb_1.weekday()) % 7
+        first_monday = feb_1 + timedelta(days=days_until_monday)
+        presidents_day = first_monday + timedelta(days=14)  # 3rd Monday
+        holidays.add(presidents_day.strftime("%Y-%m-%d"))
+        
+        # Good Friday (varies, but approximate)
+        # Easter calculation is complex, so we'll skip for now
+        
+        # Memorial Day (last Monday in May)
+        may_31 = date(year, 5, 31)
+        days_until_monday = (0 - may_31.weekday()) % 7
+        memorial_day = may_31 - timedelta(days=days_until_monday)
+        holidays.add(memorial_day.strftime("%Y-%m-%d"))
+        
+        # Juneteenth (June 19, or next weekday)
+        jun_19 = date(year, 6, 19)
+        if jun_19.weekday() == 5:  # Saturday
+            holidays.add((jun_19 - timedelta(days=1)).strftime("%Y-%m-%d"))  # Friday
+        elif jun_19.weekday() == 6:  # Sunday
+            holidays.add((jun_19 + timedelta(days=1)).strftime("%Y-%m-%d"))  # Monday
+        else:
+            holidays.add(jun_19.strftime("%Y-%m-%d"))
+        
+        # Independence Day (July 4, or next weekday)
+        jul_4 = date(year, 7, 4)
+        if jul_4.weekday() == 5:  # Saturday
+            holidays.add((jul_4 - timedelta(days=1)).strftime("%Y-%m-%d"))  # Friday
+        elif jul_4.weekday() == 6:  # Sunday
+            holidays.add((jul_4 + timedelta(days=1)).strftime("%Y-%m-%d"))  # Monday
+        else:
+            holidays.add(jul_4.strftime("%Y-%m-%d"))
+        
+        # Labor Day (1st Monday in September)
+        sep_1 = date(year, 9, 1)
+        days_until_monday = (0 - sep_1.weekday()) % 7
+        labor_day = sep_1 + timedelta(days=days_until_monday)
+        holidays.add(labor_day.strftime("%Y-%m-%d"))
+        
+        # Thanksgiving (4th Thursday in November)
+        nov_1 = date(year, 11, 1)
+        days_until_thursday = (3 - nov_1.weekday()) % 7
+        first_thursday = nov_1 + timedelta(days=days_until_thursday)
+        thanksgiving = first_thursday + timedelta(days=21)  # 4th Thursday
+        holidays.add(thanksgiving.strftime("%Y-%m-%d"))
+        
+        # Day After Thanksgiving (Friday after Thanksgiving - market closed)
+        day_after_thanksgiving = thanksgiving + timedelta(days=1)
+        holidays.add(day_after_thanksgiving.strftime("%Y-%m-%d"))
+        
+        # Christmas (Dec 25, or next weekday)
+        dec_25 = date(year, 12, 25)
+        if dec_25.weekday() == 5:  # Saturday
+            holidays.add((dec_25 - timedelta(days=1)).strftime("%Y-%m-%d"))  # Friday
+        elif dec_25.weekday() == 6:  # Sunday
+            holidays.add((dec_25 + timedelta(days=1)).strftime("%Y-%m-%d"))  # Monday
+        else:
+            holidays.add(dec_25.strftime("%Y-%m-%d"))
+    
+    return holidays
+
+
+def _get_known_early_closes(start_dt: datetime, end_dt: datetime) -> dict:
+    """Get known early close dates (1 PM ET)."""
+    from datetime import date, timedelta
+    early_closes = {}
+    
+    # Get all years in range
+    years = set()
+    current = start_dt
+    while current <= end_dt:
+        years.add(current.year)
+        current += timedelta(days=365)
+    
+    for year in years:
+        # Day after Thanksgiving (4th Thursday in November + 1 day = Friday)
+        # Thanksgiving is 4th Thursday of November
+        nov_1 = date(year, 11, 1)
+        # Find first Thursday
+        days_until_thursday = (3 - nov_1.weekday()) % 7
+        first_thursday = nov_1 + timedelta(days=days_until_thursday)
+        # 4th Thursday is 3 weeks later
+        thanksgiving = first_thursday + timedelta(days=21)
+        day_after = thanksgiving + timedelta(days=1)
+        
+        day_after_dt = datetime.combine(day_after, datetime.min.time()).replace(tzinfo=timezone.utc)
+        if start_dt <= day_after_dt <= end_dt:
+            early_closes[day_after.strftime("%Y-%m-%d")] = "13:00"  # 1 PM ET
+        
+        # Day before Christmas (Dec 24, if weekday)
+        christmas_eve = date(year, 12, 24)
+        if christmas_eve.weekday() < 5:  # Monday-Friday
+            christmas_eve_dt = datetime.combine(christmas_eve, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if start_dt <= christmas_eve_dt <= end_dt:
+                early_closes[christmas_eve.strftime("%Y-%m-%d")] = "13:00"  # 1 PM ET
+    
+    return early_closes
 
 
 @app.get("/market/status")
@@ -1045,6 +1919,241 @@ async def get_live_status():
     if not bot_manager:
         raise HTTPException(status_code=503, detail="Bot manager not initialized")
     return bot_manager.get_live_status()
+
+
+# Logging Configuration Endpoints
+@app.get("/settings/logging")
+async def get_logging_settings():
+    """Get current logging configuration."""
+    try:
+        from pathlib import Path
+        import yaml
+        
+        # Load settings directly from YAML file
+        settings_path = Path("config/settings.yaml")
+        if settings_path.exists():
+            with open(settings_path, 'r') as f:
+                settings_data = yaml.safe_load(f) or {}
+            logging_config = settings_data.get('logging', {})
+        else:
+            logging_config = {}
+        
+        # Get current log level from root logger
+        import logging
+        root_logger = logging.getLogger()
+        current_level = logging.getLevelName(root_logger.level)
+        
+        return {
+            "log_level": logging_config.get("level", "INFO"),
+            "enable_debug": logging_config.get("enable_debug", False),
+            "current_level": current_level,
+            "log_files": {
+                "main": logging_config.get("log_file", "logs/futbot.log"),
+                "api": logging_config.get("api_log_file", "logs/api_server.log"),
+                "events": logging_config.get("event_log_file", "logs/trading_events.jsonl")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting logging settings: {e}")
+        return {
+            "log_level": "INFO",
+            "enable_debug": False,
+            "current_level": "INFO",
+            "log_files": {}
+        }
+
+
+class LoggingSettingsRequest(BaseModel):
+    """Request to update logging settings."""
+    log_level: Optional[str] = None  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    enable_debug: Optional[bool] = None
+
+
+@app.post("/settings/logging")
+async def update_logging_settings(request: LoggingSettingsRequest):
+    """Update logging configuration dynamically."""
+    try:
+        import logging
+        from pathlib import Path
+        import yaml
+        
+        # Update root logger level
+        if request.log_level:
+            level_map = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARNING": logging.WARNING,
+                "ERROR": logging.ERROR,
+                "CRITICAL": logging.CRITICAL
+            }
+            new_level = level_map.get(request.log_level.upper(), logging.INFO)
+            logging.getLogger().setLevel(new_level)
+            # Also update all child loggers
+            for logger_name in logging.Logger.manager.loggerDict:
+                logging.getLogger(logger_name).setLevel(new_level)
+            logger.info(f"✅ Log level changed to {request.log_level}")
+        
+        # Update settings.yaml file
+        settings_path = Path("config/settings.yaml")
+        if settings_path.exists():
+            with open(settings_path, 'r') as f:
+                settings_data = yaml.safe_load(f) or {}
+            
+            if 'logging' not in settings_data:
+                settings_data['logging'] = {}
+            
+            if request.log_level:
+                settings_data['logging']['level'] = request.log_level.upper()
+            if request.enable_debug is not None:
+                settings_data['logging']['enable_debug'] = request.enable_debug
+            
+            with open(settings_path, 'w') as f:
+                yaml.dump(settings_data, f, default_flow_style=False, sort_keys=False)
+            logger.info(f"✅ Settings file updated")
+        
+        return {
+            "success": True,
+            "message": "Logging settings updated",
+            "log_level": request.log_level or "unchanged",
+            "enable_debug": request.enable_debug if request.enable_debug is not None else "unchanged"
+        }
+    except Exception as e:
+        logger.error(f"Error updating logging settings: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update logging settings: {str(e)}")
+
+
+@app.get("/logs")
+async def get_logs(limit: int = 100, level: Optional[str] = None):
+    """Get recent log entries from multiple log sources."""
+    try:
+        from pathlib import Path
+        import os
+        
+        # Try multiple log file locations
+        log_files = [
+            Path("logs/futbot.log"),
+            Path("logs/api_server.log"),
+            Path("/tmp/futbot_server.log"),
+            Path("logs/trading_events.jsonl"),  # JSONL format
+        ]
+        
+        all_logs = []
+        found_files = []
+        
+        for log_file in log_files:
+            if not log_file.exists():
+                continue
+            
+            found_files.append(str(log_file))
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    # Get last N lines
+                    recent_lines = lines[-limit:] if len(lines) > limit else lines
+                    
+                    for line in recent_lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # Handle JSONL format (trading_events.jsonl)
+                        if log_file.suffix == '.jsonl':
+                            try:
+                                import json
+                                event = json.loads(line)
+                                log_entry = {
+                                    "timestamp": event.get("timestamp", event.get("time", "")),
+                                    "logger": event.get("logger", "trading_events"),
+                                    "level": event.get("level", "INFO"),
+                                    "message": event.get("message", str(event))
+                                }
+                            except json.JSONDecodeError:
+                                continue
+                        else:
+                            # Parse standard log line (format: timestamp - logger - level - message)
+                            # Example: 2024-11-29 14:15:30,123 - core.live.scheduler - INFO - Message
+                            # Or uvicorn format: INFO:     127.0.0.1:50679 - "GET /regime HTTP/1.1" 200 OK
+                            parts = line.split(' - ', 3)
+                            if len(parts) >= 4:
+                                timestamp = parts[0]
+                                logger_name = parts[1]
+                                log_level = parts[2]
+                                message = parts[3]
+                                log_entry = {
+                                    "timestamp": timestamp,
+                                    "logger": logger_name,
+                                    "level": log_level,
+                                    "message": message
+                                }
+                            elif line.startswith(('INFO:', 'WARNING:', 'ERROR:', 'DEBUG:', 'CRITICAL:')):
+                                # Uvicorn format: INFO:     127.0.0.1:50679 - "GET /regime HTTP/1.1" 200 OK
+                                level_end = line.find(':')
+                                if level_end > 0:
+                                    log_level = line[:level_end].strip()
+                                    message = line[level_end + 1:].strip()
+                                    log_entry = {
+                                        "timestamp": "",
+                                        "logger": "uvicorn",
+                                        "level": log_level,
+                                        "message": message
+                                    }
+                                else:
+                                    log_entry = {
+                                        "timestamp": "",
+                                        "logger": "uvicorn",
+                                        "level": "INFO",
+                                        "message": line
+                                    }
+                            else:
+                                # Fallback: just add the line
+                                log_entry = {
+                                    "timestamp": "",
+                                    "logger": str(log_file.name),
+                                    "level": "INFO",
+                                    "message": line
+                                }
+                        
+                        # Filter by level if specified
+                        if level and log_entry.get("level", "").upper() != level.upper():
+                            continue
+                        
+                        all_logs.append(log_entry)
+            except Exception as e:
+                logger.warning(f"Error reading {log_file}: {e}")
+                continue
+        
+        # Sort by timestamp if available, otherwise keep order
+        try:
+            all_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        except:
+            pass
+        
+        # Limit total results
+        all_logs = all_logs[:limit]
+        
+        return {
+            "logs": all_logs,
+            "total": len(all_logs),
+            "files_checked": found_files,
+            "message": f"Found logs from {len(found_files)} file(s)" if found_files else "No log files found"
+        }
+    except Exception as e:
+        logger.error(f"Error reading logs: {e}", exc_info=True)
+        return {"logs": [], "error": str(e), "message": f"Error: {str(e)}"}
+
+
+@app.get("/logs/download")
+async def download_logs():
+    """Download log file."""
+    from pathlib import Path
+    log_file = Path("logs/futbot.log")
+    if not log_file.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+    return FileResponse(
+        path=str(log_file),
+        filename="futbot.log",
+        media_type="text/plain"
+    )
 
 
 @app.get("/live/portfolio")

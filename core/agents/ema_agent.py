@@ -48,8 +48,17 @@ class EMAAgent(BaseAgent):
         if ema_distance_pct < self.momentum_threshold:
             return []
 
-        # Long signal: Price above EMA with bullish bias or uptrend
-        if price_above_ema and (signal.bias.value == "bullish" or signal.trend_direction.value == "up"):
+        # Helper to safely get enum value (handles both enum and string)
+        def get_enum_value(enum_or_str):
+            if isinstance(enum_or_str, str):
+                return enum_or_str
+            return enum_or_str.value if hasattr(enum_or_str, 'value') else str(enum_or_str)
+        
+        bias_val = get_enum_value(signal.bias)
+        trend_val = get_enum_value(signal.trend_direction)
+        
+        # Long signal: Price above EMA with long bias or uptrend
+        if price_above_ema and (bias_val == "long" or trend_val == "up"):
             # Additional confirmation: price should be moving up
             direction = TradeDirection.LONG
             confidence = min(signal.confidence, 0.7)  # Cap confidence for EMA signals
@@ -57,8 +66,8 @@ class EMAAgent(BaseAgent):
             intent = self._build_intent(direction, self.position_size, confidence, reason)
             return [intent]
 
-        # Short signal: Price below EMA with bearish bias or downtrend
-        if price_below_ema and (signal.bias.value == "bearish" or signal.trend_direction.value == "down"):
+        # Short signal: Price below EMA with short bias or downtrend
+        if price_below_ema and (bias_val == "short" or trend_val == "down"):
             # Additional confirmation: price should be moving down
             direction = TradeDirection.SHORT
             confidence = min(signal.confidence, 0.7)  # Cap confidence for EMA signals

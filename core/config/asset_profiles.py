@@ -86,8 +86,9 @@ class OptionRiskProfile:
     max_contracts_per_trade: int = 10  # Max contracts per trade
     
     # Time-based restrictions
-    min_dte_for_entry: int = 7  # Minimum days to expiration to enter
+    min_dte_for_entry: int = 0  # Minimum days to expiration to enter (0 = allow 0DTE)
     max_dte_for_entry: int = 45  # Maximum days to expiration to enter
+    # PERFORMANCE: Enable 0DTE trading for aggressive strategies
     exit_before_exp_days: int = 3  # Exit position N days before expiration
     
     # IV and skew

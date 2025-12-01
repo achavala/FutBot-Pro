@@ -24,6 +24,12 @@ class TradeIntent:
     confidence: float
     reason: str
     metadata: Optional[Dict[str, float]] = None
+    
+    # Options support
+    instrument_type: str = "stock"  # "stock" | "option"
+    option_type: Optional[str] = None  # "call" | "put"
+    moneyness: Optional[str] = None  # "atm" | "otm" | "itm"
+    time_to_expiry_days: Optional[int] = None  # 0 (0DTE) | 1 | 2 | 5 | 7
 
 
 class BaseAgent(ABC):
@@ -39,7 +45,16 @@ class BaseAgent(ABC):
         """Return trade intents based on the regime signal and current market state."""
 
     def _build_intent(
-        self, direction: TradeDirection, size: float, confidence: float, reason: str, metadata: Optional[Dict[str, float]] = None
+        self, 
+        direction: TradeDirection, 
+        size: float, 
+        confidence: float, 
+        reason: str, 
+        metadata: Optional[Dict[str, float]] = None,
+        instrument_type: str = "stock",
+        option_type: Optional[str] = None,
+        moneyness: Optional[str] = None,
+        time_to_expiry_days: Optional[int] = None,
     ) -> TradeIntent:
         return TradeIntent(
             symbol=self.symbol,
@@ -49,5 +64,9 @@ class BaseAgent(ABC):
             confidence=confidence,
             reason=reason,
             metadata=metadata or {},
+            instrument_type=instrument_type,
+            option_type=option_type,
+            moneyness=moneyness,
+            time_to_expiry_days=time_to_expiry_days,
         )
 

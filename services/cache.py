@@ -57,11 +57,25 @@ class BarCache(SQLiteCache):
     def store(self, symbol: str, timeframe: str, bars: pd.DataFrame) -> None:
         if bars.empty:
             return
+        
+        # Handle timestamp conversion - can be int (ms), Timestamp, or datetime
+        def convert_timestamp(ts):
+            if isinstance(ts, (int, float)):
+                return int(ts)
+            elif isinstance(ts, pd.Timestamp):
+                return int(ts.timestamp() * 1000)  # Convert to milliseconds
+            elif hasattr(ts, 'timestamp'):
+                # datetime object
+                return int(ts.timestamp() * 1000)
+            else:
+                # Try to convert string or other types
+                return int(pd.to_datetime(ts).timestamp() * 1000)
+        
         rows: List[tuple] = [
             (
                 symbol,
                 timeframe,
-                int(row["timestamp"]),
+                convert_timestamp(row["timestamp"]),
                 float(row["open"]),
                 float(row["high"]),
                 float(row["low"]),
@@ -135,6 +149,80 @@ class BarCache(SQLiteCache):
         )
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         return df.set_index("timestamp")
+    
+    def get_available_dates(
+        self,
+        symbols: List[str],
+        timeframe: str = "1min",
+        interval_minutes: int = 30,
+    ) -> List[dict]:
+        """
+        Get available dates and times from cache for given symbols.
+        Returns list of dicts with 'date' (YYYY-MM-DD) and 'times' (list of HH:MM strings).
+        Times are rounded to the specified interval (default: 30 minutes).
+        
+        Args:
+            symbols: List of symbols to check
+            timeframe: Timeframe to check (default: "1min")
+            interval_minutes: Round times to this interval (default: 30 for 30-minute intervals)
+            
+        Returns:
+            List of dicts: [{"date": "2025-11-24", "times": ["09:30", "10:00", "10:30", ...]}, ...]
+        """
+        from collections import defaultdict
+        
+        # Normalize timeframe
+        timeframe = timeframe.lower().replace("minute", "min")
+        
+        # Query for all timestamps for these symbols
+        placeholders = ",".join("?" * len(symbols))
+        query = f"""
+            SELECT DISTINCT ts
+            FROM polygon_bars
+            WHERE symbol IN ({placeholders}) AND timeframe = ?
+            ORDER BY ts ASC
+        """
+        params = list(symbols) + [timeframe]
+        
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        
+        if not rows:
+            return []
+        
+        # Group timestamps by date and round to interval
+        dates_dict = defaultdict(set)
+        for (ts_ms,) in rows:
+            # Convert milliseconds to datetime
+            dt = datetime.fromtimestamp(ts_ms / 1000.0)
+            date_str = dt.strftime("%Y-%m-%d")
+            
+            # Round to nearest interval_minutes
+            total_minutes = dt.hour * 60 + dt.minute
+            rounded_minutes = (total_minutes // interval_minutes) * interval_minutes
+            rounded_hour = rounded_minutes // 60
+            rounded_min = rounded_minutes % 60
+            
+            # Format as HH:MM
+            time_str = f"{rounded_hour:02d}:{rounded_min:02d}"
+            
+            # Only include market hours (9:30 AM to 4:00 PM)
+            if rounded_hour < 9 or (rounded_hour == 9 and rounded_min < 30) or rounded_hour >= 16:
+                continue
+            
+            dates_dict[date_str].add(time_str)
+        
+        # Convert to list of dicts, sorted by date (newest first)
+        result = []
+        for date_str in sorted(dates_dict.keys(), reverse=True):
+            # Sort times
+            times = sorted(dates_dict[date_str])
+            result.append({
+                "date": date_str,
+                "times": times
+            })
+        
+        return result
 
 
 class NewsCache(SQLiteCache):

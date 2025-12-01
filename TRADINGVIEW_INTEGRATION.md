@@ -64,3 +64,4 @@ Potential improvements:
 - [ ] Custom TradingView Pine Script integration
 - [ ] Multiple chart layouts (side-by-side comparison)
 
+

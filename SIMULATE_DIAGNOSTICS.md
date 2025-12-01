@@ -148,3 +148,4 @@ Loaded 100 bars for SPY (preloaded: 100)
 
 The diagnostic logging will pinpoint exactly where the simulation fails!
 
+

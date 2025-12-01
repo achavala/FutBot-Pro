@@ -132,6 +132,11 @@ class ProfitManager:
             return True, f"Maximum hold time reached ({bars_held} bars)"
         
         # Calculate current profit/loss
+        # CRITICAL FIX: Prevent division by zero if entry_price is 0 or invalid
+        if tracker.entry_price <= 0:
+            logger.warning(f"⚠️ [ProfitManager] Invalid entry_price {tracker.entry_price} for {symbol}, skipping profit calculation")
+            return False, ""
+        
         if tracker.quantity > 0:  # Long
             profit_pct = ((current_price - tracker.entry_price) / tracker.entry_price) * 100.0
         else:  # Short
@@ -157,13 +162,13 @@ class ProfitManager:
             # Exit if regime becomes unfavorable
             if tracker.quantity > 0:  # Long position
                 # Exit if bias becomes bearish or regime becomes unfavorable
-                if current_regime.bias == Bias.BEARISH:
+                if current_regime.bias == Bias.SHORT:
                     return True, "Regime bias flipped to bearish"
                 if current_regime.regime_type == RegimeType.COMPRESSION and current_regime.confidence < 0.5:
                     return True, "Regime became uncertain (compression)"
             else:  # Short position
                 # Exit if bias becomes bullish
-                if current_regime.bias == Bias.BULLISH:
+                if current_regime.bias == Bias.LONG:
                     return True, "Regime bias flipped to bullish"
                 if current_regime.regime_type == RegimeType.COMPRESSION and current_regime.confidence < 0.5:
                     return True, "Regime became uncertain (compression)"

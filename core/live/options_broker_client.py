@@ -12,7 +12,25 @@ logger = logging.getLogger(__name__)
 
 
 class OptionsBrokerClient(AlpacaBrokerClient):
-    """Broker client for options trading via Alpaca."""
+    """
+    Broker client for options trading via Alpaca.
+    
+    Supports paper trading and live trading for options.
+    Automatically uses paper trading if base_url contains "paper-api".
+    """
+    
+    def __init__(self, api_key: str, api_secret: str, base_url: str = "https://paper-api.alpaca.markets"):
+        """
+        Initialize Options Broker Client.
+        
+        Args:
+            api_key: Alpaca API key
+            api_secret: Alpaca API secret
+            base_url: Alpaca API base URL (default: paper trading)
+        """
+        # Initialize parent AlpacaBrokerClient
+        super().__init__(api_key=api_key, api_secret=api_secret, base_url=base_url)
+        logger.info(f"✅ OptionsBrokerClient initialized (paper={self.is_paper})")
     
     def submit_options_order(
         self,

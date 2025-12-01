@@ -142,3 +142,4 @@ QQQ:
 **Symbols**: SPY, QQQ
 **Mode**: Paper Trading (safe testing)
 
+

@@ -74,12 +74,14 @@ class LiveTradeExecutor:
 
         # Submit order
         try:
+            # CRITICAL FIX: Pass current_price to broker so it uses correct fill price
             order = self.broker_client.submit_order(
                 symbol=symbol,
                 side=side,
                 quantity=abs(quantity),
                 order_type=OrderType.MARKET,  # Use market orders for now
                 time_in_force=TimeInForce.DAY,
+                current_price=current_price,  # Pass the actual current price
             )
 
             return ExecutionResult(
@@ -91,7 +93,7 @@ class LiveTradeExecutor:
         except Exception as e:
             return ExecutionResult(success=False, reason=f"Order submission failed: {str(e)}")
 
-    def close_position(self, symbol: str, current_position: float) -> ExecutionResult:
+    def close_position(self, symbol: str, current_position: float, current_price: Optional[float] = None) -> ExecutionResult:
         """Close entire position."""
         if current_position == 0:
             return ExecutionResult(success=False, reason="No position to close")
@@ -100,12 +102,14 @@ class LiveTradeExecutor:
         quantity = abs(current_position)
 
         try:
+            # CRITICAL FIX: Pass current_price to broker so it uses correct fill price
             order = self.broker_client.submit_order(
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
                 order_type=OrderType.MARKET,
                 time_in_force=TimeInForce.DAY,
+                current_price=current_price,  # Pass current price for paper trading
             )
 
             return ExecutionResult(

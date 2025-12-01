@@ -89,3 +89,4 @@ Check:
 3. **Regime** - even compression regime should allow trades in testing mode
 4. **Logs** - check for errors blocking trades
 
+

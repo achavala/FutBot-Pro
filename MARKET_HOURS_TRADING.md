@@ -150,3 +150,4 @@ curl http://localhost:8000/live/status
 **Simulation**: Disabled during trading hours (9:30 AM - 4:00 PM ET)
 **Live Trading**: Enabled and ready
 
+

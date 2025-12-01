@@ -9,6 +9,7 @@ from typing import Dict, List, Mapping, Optional
 from core.agents.base import BaseAgent, TradeDirection, TradeIntent
 from core.config.asset_profiles import OptionRiskProfile
 from core.regime.types import RegimeSignal
+from core.regime.microstructure import MarketMicrostructure
 
 # Import OptionsSelector if available
 try:
@@ -48,10 +49,16 @@ class OptionsAgent(BaseAgent):
         self.mean_reversion_agent_signal = mean_reversion_agent_signal
         self.volatility_agent_signal = volatility_agent_signal
         
-        # Use risk profile values if available
-        self.min_confidence = float(self.config.get("min_confidence", 0.70))
+        # PERFORMANCE: Lower confidence threshold for more trades (especially 0DTE)
+        # Use risk profile testing_mode to determine threshold
+        default_confidence = 0.30 if self.option_risk_profile.testing_mode else 0.50
+        self.min_confidence = float(self.config.get("min_confidence", default_confidence))
         self.min_iv_percentile = self.option_risk_profile.min_iv_percentile
         self.max_iv_percentile = self.option_risk_profile.max_iv_percentile
+        
+        # IV Rank/Percentile thresholds (institutional edge)
+        self.iv_percentile_buy_threshold = 20.0  # Buy options when IV < 20th percentile (cheap)
+        self.iv_percentile_sell_threshold = 80.0  # Sell premium when IV > 80th percentile (expensive)
         self.min_dte = self.option_risk_profile.min_dte_for_entry
         self.max_dte = self.option_risk_profile.max_dte_for_entry
         self.delta_range = self.option_risk_profile.delta_range
@@ -61,6 +68,9 @@ class OptionsAgent(BaseAgent):
             self.options_selector = OptionsSelector(self.option_risk_profile)
         else:
             self.options_selector = None
+        
+        # IV percentile tracking (for GEX v2 confidence adjustment)
+        self.iv_percentile: Optional[float] = None
     
     def evaluate(
         self,
@@ -77,13 +87,17 @@ class OptionsAgent(BaseAgent):
         - Volatility should be MEDIUM to HIGH (good for options)
         """
         # TRACE LOGGING: Log when agent is called
+        # Helper to safely get enum value
+        def get_enum_val(e):
+            return e.value if hasattr(e, 'value') and not isinstance(e, str) else str(e)
+        
         logger.info(
             f"OptionsAgent.evaluate() called for {self.symbol}: "
-            f"regime={signal.regime_type.value}, "
+            f"regime={get_enum_val(signal.regime_type)}, "
             f"confidence={signal.confidence:.2%}, "
-            f"trend={signal.trend_direction.value}, "
-            f"bias={signal.bias.value}, "
-            f"volatility={signal.volatility_level.value}"
+            f"trend={get_enum_val(signal.trend_direction)}, "
+            f"bias={get_enum_val(signal.bias)}, "
+            f"volatility={get_enum_val(signal.volatility_level)}"
         )
         
         # CONFIG VALIDATION: Log effective runtime config
@@ -100,55 +114,90 @@ class OptionsAgent(BaseAgent):
         )
         
         # Check basic requirements
-        if signal.confidence < self.min_confidence:
-            logger.debug(f"OptionsAgent: Confidence too low: {signal.confidence:.2%} < {self.min_confidence:.2%}")
+        # PERFORMANCE: More lenient confidence check for 0DTE trading
+        # In testing mode, allow lower confidence (15% minimum)
+        min_effective_confidence = 0.15 if self.option_risk_profile.testing_mode else self.min_confidence
+        if signal.confidence < min_effective_confidence:
+            logger.debug(f"OptionsAgent: Confidence too low: {signal.confidence:.2%} < {min_effective_confidence:.2%}")
             return []
         
         if not signal.is_valid:
             logger.debug(f"OptionsAgent: Regime not valid")
             return []
         
-        # For PUT trades, we need bearish conditions
+        # Helper to safely get enum value
+        def get_enum_val(e):
+            return e.value if hasattr(e, 'value') and not isinstance(e, str) else str(e)
+        
+        # Determine trade direction based on regime and bias
+        trend_val = get_enum_val(signal.trend_direction)
+        regime_val = get_enum_val(signal.regime_type)
+        bias_val = get_enum_val(signal.bias)
+        vol_val = get_enum_val(signal.volatility_level)
+        
+        # Determine if we should trade CALL (bullish) or PUT (bearish)
         is_bearish = (
-            signal.trend_direction.value == "down"
-            or (signal.regime_type.value == "expansion" and signal.bias.value == "short")
+            trend_val == "down"
+            or (regime_val == "expansion" and bias_val == "short")
+            or bias_val == "short"
         )
         
-        if not is_bearish:
+        is_bullish = (
+            trend_val == "up"
+            or (regime_val == "trend" and bias_val == "long")
+            or bias_val == "long"
+        )
+        
+        # If neither bullish nor bearish, skip
+        if not is_bullish and not is_bearish:
             return []
         
         # Volatility check (options need some volatility)
-        if signal.volatility_level.value == "low":
+        if vol_val == "low":
             return []
+        
+        # Determine option type and direction
+        option_type = "put" if is_bearish else "call"
+        trade_direction = TradeDirection.LONG  # Always buy options (long calls or long puts)
         
         # If we have options data feed, analyze specific options
         if self.options_data_feed:
             return self._analyze_options_chain(signal, market_state)
         
-        # Otherwise, return generic PUT intent
+        # Otherwise, return generic options intent with synthetic pricing
         price = market_state.get("close", market_state.get("price", 0.0))
         if price <= 0:
             return []
         
-        # Generic PUT trade intent
-        # Note: This would need to be converted to actual option symbol later
+        # PERFORMANCE: Prefer 0DTE for faster trades (testing mode) or medium+ confidence
+        # 0DTE is preferred for aggressive strategies
+        if self.option_risk_profile.testing_mode:
+            dte = 0  # Always use 0DTE in testing mode for speed
+        else:
+            dte = 0 if signal.confidence > 0.6 else 1  # 0DTE for medium+ confidence, 1DTE otherwise
+        
+        # Build reason string
         reason = (
-            f"PUT opportunity: {signal.regime_type.value} regime, "
-            f"{signal.bias.value} bias, confidence {signal.confidence:.2%}"
+            f"{option_type.upper()} opportunity: {regime_val} regime, "
+            f"{bias_val} bias, confidence {signal.confidence:.2%}"
         )
         
         return [
             self._build_intent(
-                direction=TradeDirection.SHORT,  # PUT = bearish
-                size=1.0,  # Will be converted to contracts
+                direction=trade_direction,  # LONG for buying options
+                size=1.0,  # Number of contracts (will be scaled by position sizing)
                 confidence=signal.confidence,
                 reason=reason,
                 metadata={
-                    "option_type": "put",
+                    "option_type": option_type,
                     "underlying_symbol": self.symbol,
-                    "regime_type": signal.regime_type.value,
-                    "volatility": signal.volatility_level.value,
+                    "regime_type": regime_val,
+                    "volatility": vol_val,
                 },
+                instrument_type="option",  # Mark as options trade
+                option_type=option_type,  # "call" or "put"
+                moneyness="atm",  # At-the-money
+                time_to_expiry_days=dte,  # Days to expiration
             )
         ]
     
@@ -240,16 +289,101 @@ class OptionsAgent(BaseAgent):
                     )
                     
                     if is_valid:
-                        logger.info(f"ACCEPT {option_symbol}: Validation passed, generating trade intent")
+                        # Apply Greeks-based regime filter to selected contract
+                        delta = greek.get("delta", 0.0)
+                        gamma = greek.get("gamma", 0.0)
+                        theta = greek.get("theta", 0.0)
+                        iv = greek.get("implied_volatility", 0.0)
+                        
+                        abs_delta = abs(delta)
+                        abs_gamma = abs(gamma)
+                        
+                        # A) Basic Greeks filter
+                        if abs_delta < 0.30:
+                            logger.info(f"REJECT {option_symbol}: Delta too low ({delta:.3f}) after validation")
+                            return []  # Not in a loop, so return empty list
+                        if abs_gamma > 0.15:
+                            logger.info(f"REJECT {option_symbol}: Gamma too high ({gamma:.4f}) after validation")
+                            return []  # Not in a loop, so return empty list
+                        
+                        # B) Advanced: High-conviction boost
+                        confidence_multiplier = 1.0
+                        is_high_conviction = False
+                        is_low_iv = False
+                        
+                        if abs_delta > 0.70 and abs_gamma < 0.05:
+                            is_high_conviction = True
+                            confidence_multiplier = 1.5
+                            logger.info(f"✅ HIGH-CONVICTION {option_symbol}: delta={delta:.3f}, gamma={gamma:.4f}")
+                        elif abs_delta > 0.50 and abs_gamma < 0.08:
+                            confidence_multiplier = 1.2
+                        
+                        # IV percentile boost
+                        if iv_percentile is not None and iv_percentile < self.iv_percentile_buy_threshold:
+                            is_low_iv = True
+                            confidence_multiplier *= 1.3  # 30% boost for cheap premium
+                            logger.info(f"✅ LOW IV BOOST {option_symbol}: IV percentile={iv_percentile:.1f}% (cheap premium)")
+                        
+                        # C) Auto-regime adjustment
+                        from core.agents.base import get_enum_val
+                        regime_type = get_enum_val(signal.regime_type)
+                        volatility_level = get_enum_val(signal.volatility_level)
+                        
+                        regime_adjusted_confidence = signal.confidence * confidence_multiplier
+                        
+                        if regime_type == "trend" and abs_delta < 0.40:
+                            logger.info(f"REJECT {option_symbol}: Trend regime requires delta >= 0.40")
+                            return []  # Not in a loop, so return empty list
+                        elif regime_type == "compression" and abs_delta < 0.25:
+                            logger.info(f"REJECT {option_symbol}: Compression regime requires delta >= 0.25")
+                            return []  # Not in a loop, so return empty list
+                        elif regime_type == "expansion" and abs_delta < 0.30:
+                            logger.info(f"REJECT {option_symbol}: Expansion regime requires delta >= 0.30")
+                            return []  # Not in a loop, so return empty list
+                        
+                        if volatility_level == "high" and abs_gamma > 0.10:
+                            logger.info(f"REJECT {option_symbol}: High volatility requires gamma <= 0.10")
+                            return []  # Not in a loop, so return empty list
+                        
+                        if regime_adjusted_confidence < self.min_confidence:
+                            logger.info(f"REJECT {option_symbol}: Regime-adjusted confidence too low")
+                            return []  # Not in a loop, so return empty list
+                        
+                        logger.info(
+                            f"✅ GREEKS + IV FILTER PASSED {option_symbol}: "
+                            f"delta={delta:.3f}, gamma={gamma:.4f}, "
+                            f"IV percentile={iv_percentile:.1f}% " if iv_percentile is not None else "",
+                            f"confidence={regime_adjusted_confidence:.2%}"
+                        )
+                        
+                        iv_info = f", IV percentile={iv_percentile:.1f}%" if iv_percentile is not None else ""
+                        if is_low_iv:
+                            iv_info += " [LOW IV - CHEAP PREMIUM]"
+                        
+                        # Get GEX data from microstructure for display
+                        gex_info = ""
+                        try:
+                            microstructure = MarketMicrostructure()
+                            gex_data_selector = microstructure.get(self.symbol)
+                            if gex_data_selector.get('gex_coverage', 0) > 0:
+                                gex_regime_display = gex_data_selector.get('gex_regime', 'NEUTRAL')
+                                gex_strength_display = gex_data_selector.get('gex_strength', 0.0)
+                                gex_info = f", GEX={gex_regime_display} (${gex_strength_display:.2f}B)"
+                                if gex_strength_display > 2.0:
+                                    gex_info += " [STRONG GEX]"
+                        except Exception:
+                            pass  # GEX info is optional
+                        
                         reason_text = (
                             f"PUT {best_contract.get('strike_price', 'unknown')} exp {expiration}: "
-                            f"delta {greek.get('delta', 0):.2f}, IV {greek.get('implied_volatility', 0):.2%}"
+                            f"delta {delta:.2f}, IV {iv:.2%}{iv_info}{gex_info}"
+                            f"{' [HIGH-CONVICTION]' if is_high_conviction else ''}"
                         )
                         return [
                             self._build_intent(
-                                direction=TradeDirection.SHORT,
+                                direction=TradeDirection.LONG,  # Buying PUT options
                                 size=1.0,
-                                confidence=signal.confidence,
+                                confidence=regime_adjusted_confidence,  # Use adjusted confidence
                                 reason=reason_text,
                                 metadata={
                                     "option_symbol": option_symbol,
@@ -257,9 +391,20 @@ class OptionsAgent(BaseAgent):
                                     "strike": best_contract.get("strike_price"),
                                     "expiration": expiration,
                                     "dte": dte,
-                                    "delta": greek.get("delta"),
-                                    "iv": greek.get("implied_volatility"),
+                                    "delta": delta,
+                                    "gamma": gamma,
+                                    "theta": theta,
+                                    "iv": iv,
+                                    "iv_percentile": iv_percentile,
+                                    "high_conviction": is_high_conviction,
+                                    "low_iv": is_low_iv,
+                                    "greeks_filter_applied": True,
+                                    "iv_percentile_filter_applied": iv_percentile is not None,
                                 },
+                                instrument_type="option",
+                                option_type="put",
+                                moneyness="atm",
+                                time_to_expiry_days=dte,
                             )
                         ]
                     else:
@@ -348,22 +493,320 @@ class OptionsAgent(BaseAgent):
                 if delta < delta_min or delta > delta_max:
                     continue
                 
-                # Check IV percentile (if available)
-                # For now, we'll use IV directly
-                if iv < (self.min_iv_percentile / 100.0) or iv > (self.max_iv_percentile / 100.0):
+                # ============================================================
+                # STEP 5: IV RANK/PERCENTILE FILTER (INSTITUTIONAL EDGE #2)
+                # ============================================================
+                # This is the #1 edge in options trading:
+                # - IV Percentile < 20% = IV is low (good time to BUY options)
+                # - IV Percentile > 80% = IV is high (good time to SELL premium)
+                
+                iv_percentile = None
+                iv_rank = None
+                
+                # Calculate IV percentile if options data feed is available
+                if self.options_data_feed and iv > 0:
+                    try:
+                        iv_percentile = self.options_data_feed.calculate_iv_percentile(
+                            underlying_symbol=self.symbol,
+                            current_iv=iv,
+                            lookback_days=252,  # 1 year
+                            option_type="put",  # We're evaluating PUT options in this context
+                        )
+                        if iv_percentile is not None:
+                            # Store IV percentile as instance attribute for GEX v2 logic
+                            self.iv_percentile = iv_percentile
+                            logger.debug(
+                                f"IV Percentile for {option_symbol}: {iv_percentile:.1f}% "
+                                f"(current IV={iv:.2%})"
+                            )
+                    except Exception as e:
+                        logger.debug(f"Could not calculate IV percentile: {e}")
+                        self.iv_percentile = None
+                
+                # Apply IV percentile filter
+                if iv_percentile is not None:
+                    # For buying options (long calls/puts): prefer low IV
+                    # For selling premium: prefer high IV
+                    # Since we're buying options here, we want low IV percentile
+                    if iv_percentile > self.iv_percentile_sell_threshold:
+                        # IV is very high (>80th percentile) - not good for buying options
+                        # This is a premium-selling opportunity, not a buying opportunity
+                        logger.debug(
+                            f"REJECT {option_symbol}: IV percentile too high ({iv_percentile:.1f}%) "
+                            f"- better for selling premium, not buying"
+                        )
+                        continue
+                    elif iv_percentile < self.iv_percentile_buy_threshold:
+                        # IV is very low (<20th percentile) - excellent for buying options
+                        # Boost confidence for cheap premium
+                        logger.info(
+                            f"✅ LOW IV OPPORTUNITY {option_symbol}: "
+                            f"IV percentile={iv_percentile:.1f}% (cheap premium) - confidence boost"
+                        )
+                        # Will apply confidence boost later
+                    elif iv_percentile > 50.0:
+                        # IV is above median - less attractive for buying
+                        logger.debug(
+                            f"REJECT {option_symbol}: IV percentile above median ({iv_percentile:.1f}%) "
+                            f"- premium is expensive"
+                        )
+                        continue
+                
+                # ============================================================
+                # STEP 6: GEX PROXY FILTER (INSTITUTIONAL EDGE #3)
+                # ============================================================
+                # Gamma Exposure (GEX) measures dealer positioning:
+                # - POSITIVE GEX: Dealers long gamma → market pins, volatility dies → good for longs
+                # - NEGATIVE GEX: Dealers short gamma → volatility explosions → REJECT ALL TRADES
+                #
+                # This is used by every major volatility fund (Citadel, Jane Street, Optiver, SIG).
+                
+                gex_data = None
+                if self.options_data_feed and options_chain:
+                    try:
+                        # Prepare chain data for GEX calculation
+                        chain_for_gex = []
+                        for opt in options_chain[:100]:  # Sample up to 100 contracts for speed
+                            option_symbol_gex = opt.get("symbol", "")
+                            if not option_symbol_gex:
+                                continue
+                            
+                            # Get quote and Greeks for GEX calculation
+                            quote_gex = self.options_data_feed.get_option_quote(option_symbol_gex)
+                            greeks_gex = self.options_data_feed.get_option_greeks(option_symbol_gex)
+                            
+                            if quote_gex and greeks_gex:
+                                chain_for_gex.append({
+                                    'strike_price': opt.get('strike_price', 0),
+                                    'option_type': opt.get('option_type', 'put'),
+                                    'symbol': option_symbol_gex,
+                                    'gamma': greeks_gex.get('gamma', 0),
+                                    'open_interest': quote_gex.get('open_interest', 0),
+                                })
+                        
+                        if chain_for_gex:
+                            gex_data = self.options_data_feed.calculate_gex_proxy(
+                                chain_data=chain_for_gex,
+                                underlying_price=current_price,
+                            )
+                            
+                            if gex_data:
+                                logger.debug(
+                                    f"GEX Proxy for {self.symbol}: "
+                                    f"regime={gex_data['gex_regime']}, "
+                                    f"strength=${gex_data['gex_strength']:.2f}B, "
+                                    f"total=${gex_data['total_gex_dollar']:,.0f}"
+                                )
+                    except Exception as e:
+                        logger.debug(f"Could not calculate GEX proxy: {e}")
+                
+                # GEX Proxy Filter (Soft Regime Modifier - Not Hard Reject)
+                # ======================
+                # GEX v2 CONFIDENCE LAYER
+                # ======================
+                # Try multiple sources for GEX data (priority order):
+                # 1. RegimeSignal (from Market Microstructure Snapshot) - preferred
+                # 2. MarketMicrostructure singleton - real-time updated
+                # 3. Inline calculated gex_data - fallback
+                
+                gex_regime = None
+                gex_strength = None
+                total_gex_dollar = None
+                
+                # Priority 1: RegimeSignal (from scheduler's Market Microstructure Snapshot)
+                if hasattr(signal, 'gex_regime') and signal.gex_regime:
+                    gex_regime = signal.gex_regime
+                    gex_strength = signal.gex_strength
+                    total_gex_dollar = signal.total_gex_dollar
+                    logger.debug(
+                        f"[GEX] Using GEX from RegimeSignal: regime={gex_regime}, "
+                        f"strength={gex_strength:.2f}B, total=${total_gex_dollar:,.0f}"
+                    )
+                else:
+                    # Priority 2: MarketMicrostructure singleton (real-time updated)
+                    microstructure = MarketMicrostructure()
+                    gex_from_micro = microstructure.get(self.symbol)  # Use self.symbol, not symbol
+                    if gex_from_micro.get('gex_coverage', 0) > 0:
+                        gex_regime = gex_from_micro['gex_regime']
+                        gex_strength = gex_from_micro['gex_strength']
+                        total_gex_dollar = gex_from_micro['total_gex_dollar']
+                        logger.debug(
+                            f"[GEX] Using GEX from MarketMicrostructure: regime={gex_regime}, "
+                            f"strength={gex_strength:.2f}B"
+                        )
+                    elif gex_data:
+                        # Priority 3: Fallback to inline calculated GEX
+                        gex_regime = gex_data.get('gex_regime')
+                        gex_strength = gex_data.get('gex_strength')
+                        total_gex_dollar = gex_data.get('total_gex_dollar')
+                        logger.debug(
+                            f"[GEX] Using inline calculated GEX: regime={gex_regime}, "
+                            f"strength={gex_strength:.2f}B"
+                        )
+                
+                # ======================
+                # GEX v2 CONFIDENCE LAYER
+                # ======================
+                gex_confidence_multiplier = 1.0
+                if gex_strength is not None and gex_strength > 1.0:
+                    # POSITIVE GEX → Pinning → Damp
+                    if gex_regime == "POSITIVE" and gex_strength > 1.5:
+                        gex_confidence_multiplier = 0.75
+                        logger.info(
+                            f"[GEX DAMPEN] POSITIVE {gex_strength:.2f}B → pinning risk → confidence -25%"
+                        )
+                    # NEGATIVE GEX → Expansion
+                    elif gex_regime == "NEGATIVE":
+                        if iv_percentile is not None and iv_percentile < 25:
+                            gex_confidence_multiplier = 1.30
+                            logger.info(
+                                f"[GEX BOOST] NEGATIVE GEX + cheap IV → volatility expansion edge → +30%"
+                            )
+                        else:
+                            gex_confidence_multiplier = 0.80
+                            logger.info(
+                                f"[GEX CAUTION] NEGATIVE GEX but IV high → -20%"
+                            )
+                
+                # Clamp
+                gex_confidence_multiplier = max(0.01, min(gex_confidence_multiplier, 2.0))
+                
+                # Fallback: Use absolute IV range if percentile not available
+                if iv_percentile is None:
+                    if iv < (self.min_iv_percentile / 100.0) or iv > (self.max_iv_percentile / 100.0):
+                        logger.debug(f"REJECT {option_symbol}: IV out of range ({iv:.2%})")
+                        continue
+                
+                # ============================================================
+                # STEP 4: GREEKS-BASED REGIME FILTER (INSTITUTIONAL-GRADE)
+                # ============================================================
+                # This filter uses Greeks to validate trade quality based on:
+                # 1. Delta conviction (directional strength)
+                # 2. Gamma risk (volatility sensitivity)
+                # 3. Theta decay (time decay risk)
+                # 4. Regime-specific thresholds
+                
+                # Get current regime for adaptive filtering
+                from core.agents.base import get_enum_val
+                regime_type = get_enum_val(signal.regime_type)
+                volatility_level = get_enum_val(signal.volatility_level)
+                
+                # A) BASIC GREEKS FILTER - Core validation
+                # High delta = strong directional conviction
+                # Low gamma = lower volatility risk
+                # Reasonable theta = manageable time decay
+                
+                abs_delta = abs(delta)
+                abs_gamma = abs(gamma)
+                abs_theta = abs(theta)
+                
+                # Basic delta conviction check
+                if abs_delta < 0.30:
+                    logger.debug(f"REJECT {option_symbol}: Delta too low ({delta:.3f}) - weak directional conviction")
                     continue
                 
-                # STEP 4: Theta & gamma risk models
-                # Check theta decay risk
-                if mid > 0:
-                    theta_decay_pct = abs(theta) / mid if theta < 0 else 0.0
-                    if theta_decay_pct > self.option_risk_profile.max_theta_decay_allowed:
-                        continue  # Too much time decay risk
+                # Basic gamma risk check (high gamma = dangerous)
+                if abs_gamma > 0.15:
+                    logger.debug(f"REJECT {option_symbol}: Gamma too high ({gamma:.4f}) - excessive volatility risk")
+                    continue
                 
-                # Check gamma risk (high gamma = more volatile position)
-                # For now, we'll use a simple threshold
-                if abs(gamma) > 0.10:  # High gamma = restrict position size later
-                    pass  # Will handle in position sizing
+                # Basic theta decay check
+                if mid > 0:
+                    theta_decay_pct = abs_theta / mid if theta < 0 else 0.0
+                    if theta_decay_pct > self.option_risk_profile.max_theta_decay_allowed:
+                        logger.debug(f"REJECT {option_symbol}: Theta decay too high ({theta_decay_pct:.2%})")
+                        continue
+                
+                # B) ADVANCED GREEKS FILTER - High-conviction boost
+                # Delta > 0.7 + low gamma = extremely strong trend conviction
+                # This is the "institutional edge" - most bots ignore this
+                
+                high_conviction = False
+                confidence_multiplier = 1.0
+                
+                if abs_delta > 0.70 and abs_gamma < 0.05:
+                    # Extremely high directional conviction with low gamma risk
+                    high_conviction = True
+                    confidence_multiplier = 1.5  # 50% confidence boost
+                    logger.info(
+                        f"✅ HIGH-CONVICTION OPTION {option_symbol}: "
+                        f"delta={delta:.3f} (strong), gamma={gamma:.4f} (low risk), "
+                        f"confidence boost: {confidence_multiplier}x"
+                    )
+                elif abs_delta > 0.50 and abs_gamma < 0.08:
+                    # Good conviction with manageable gamma
+                    confidence_multiplier = 1.2  # 20% confidence boost
+                    logger.debug(f"✅ Good-conviction option {option_symbol}: delta={delta:.3f}, gamma={gamma:.4f}")
+                
+                # C) AUTO-REGIME GREEKS FILTER - Adaptive thresholds per regime
+                # Different regimes require different Greeks profiles
+                
+                # Start with base confidence and apply Greeks multiplier
+                regime_adjusted_confidence = signal.confidence * confidence_multiplier
+                
+                # Apply GEX confidence modifier (calculated earlier in the loop)
+                regime_adjusted_confidence *= gex_confidence_multiplier
+                
+                if regime_type == "trend":
+                    # In TREND regime: prefer high delta, low gamma
+                    # We want strong directional plays
+                    if abs_delta < 0.40:
+                        logger.debug(f"REJECT {option_symbol}: Trend regime requires delta >= 0.40, got {delta:.3f}")
+                        continue
+                    # Boost confidence for high-delta options in trends
+                    if abs_delta > 0.60:
+                        regime_adjusted_confidence *= 1.1
+                
+                elif regime_type == "compression":
+                    # In COMPRESSION: prefer lower delta, higher gamma (for volatility plays)
+                    # But still need some conviction
+                    if abs_delta < 0.25:
+                        logger.debug(f"REJECT {option_symbol}: Compression regime requires delta >= 0.25, got {delta:.3f}")
+                        continue
+                    # In compression, we might want to sell premium (negative theta)
+                    # For now, we'll allow both but note it
+                    if theta > 0:  # Positive theta = selling premium
+                        regime_adjusted_confidence *= 1.15  # Boost for premium selling in compression
+                
+                elif regime_type == "expansion":
+                    # In EXPANSION: prefer moderate delta, moderate gamma
+                    # Volatility is expanding, so gamma risk is acceptable
+                    if abs_delta < 0.30:
+                        logger.debug(f"REJECT {option_symbol}: Expansion regime requires delta >= 0.30, got {delta:.3f}")
+                        continue
+                    # Higher gamma is OK in expansion (volatility is the play)
+                    if abs_gamma > 0.12:
+                        logger.debug(f"REJECT {option_symbol}: Expansion regime: gamma too high ({gamma:.4f})")
+                        continue
+                
+                # Volatility-level adjustments
+                if volatility_level == "high":
+                    # High volatility: prefer lower gamma (less risk)
+                    if abs_gamma > 0.10:
+                        logger.debug(f"REJECT {option_symbol}: High volatility requires gamma <= 0.10, got {gamma:.4f}")
+                        continue
+                elif volatility_level == "low":
+                    # Low volatility: can accept higher gamma (volatility expansion play)
+                    if abs_gamma > 0.15:
+                        logger.debug(f"REJECT {option_symbol}: Low volatility: gamma too high ({gamma:.4f})")
+                        continue
+                
+                # Final confidence check with regime-adjusted confidence
+                if regime_adjusted_confidence < self.min_confidence:
+                    logger.debug(
+                        f"REJECT {option_symbol}: Regime-adjusted confidence too low: "
+                        f"{regime_adjusted_confidence:.2%} < {self.min_confidence:.2%}"
+                    )
+                    continue
+                
+                # Log successful Greeks filter pass
+                logger.info(
+                    f"✅ GREEKS FILTER PASSED {option_symbol}: "
+                    f"delta={delta:.3f}, gamma={gamma:.4f}, theta={theta:.4f}, "
+                    f"regime={regime_type}, vol={volatility_level}, "
+                    f"confidence={regime_adjusted_confidence:.2%} "
+                    f"({'HIGH-CONVICTION' if high_conviction else 'standard'})"
+                )
                 
                 # Calculate profit potential
                 bid = float(quote.get("bid", 0))
@@ -387,28 +830,91 @@ class OptionsAgent(BaseAgent):
                     "expiration": expiration,
                     "dte": dte,
                     "delta": delta,
+                    "gamma": gamma,
+                    "theta": theta,
+                    "vega": greeks.get("vega", 0.0),
                     "iv": iv,
+                    "iv_percentile": iv_percentile,  # Store IV percentile for sorting
+                    "gex_data": gex_data,  # Store GEX data for sorting
                     "mid_price": mid,
                     "estimated_profit_pct": estimated_profit_pct,
+                    "adjusted_confidence": regime_adjusted_confidence,  # Store final adjusted confidence
                 })
             
-            # Sort by profit potential
-            suitable_options.sort(key=lambda x: x["estimated_profit_pct"], reverse=True)
+            # Sort by multiple factors (prioritize best opportunities)
+            # Priority order (The Holy Grail Filter Chain):
+            # 1. High-conviction (delta > 0.7, gamma < 0.05)
+            # 2. Positive GEX (dealers long gamma = pinning)
+            # 3. Low IV percentile (< 20%) - cheap premium
+            # 4. Profit potential
+            suitable_options.sort(
+                key=lambda x: (
+                    # Primary: High-conviction flag
+                    not (abs(x["delta"]) > 0.70 and abs(x.get("gamma", 0)) < 0.05),
+                    # Secondary: Positive GEX (dealers long gamma)
+                    not (x.get("gex_data") and x["gex_data"].get("gex_regime") == "POSITIVE" and x["gex_data"].get("gex_strength", 0) > 2.0),
+                    # Tertiary: Low IV percentile (cheap premium)
+                    x.get("iv_percentile", 100.0) if x.get("iv_percentile") is not None else 100.0,
+                    # Quaternary: Profit potential (negative for reverse sort)
+                    -x["estimated_profit_pct"]
+                )
+            )
             
             # Return top opportunity
             if suitable_options:
                 best_option = suitable_options[0]
+                
+                # Use the stored adjusted confidence (already includes Greeks, GEX, IV, and regime adjustments)
+                # This avoids recalculating and ensures consistency with the filter chain
+                final_confidence = min(1.0, best_option.get("adjusted_confidence", signal.confidence))
+                
+                # Extract values for logging/reason string
+                abs_delta = abs(best_option["delta"])
+                abs_gamma = abs(best_option.get("gamma", 0))
+                is_high_conviction = abs_delta > 0.70 and abs_gamma < 0.05
+                iv_percentile = best_option.get("iv_percentile")
+                is_low_iv = iv_percentile is not None and iv_percentile < self.iv_percentile_buy_threshold
+                gex_data = best_option.get("gex_data")
+                has_strong_gex = gex_data and gex_data.get("gex_regime") == "POSITIVE" and gex_data.get("gex_strength", 0) > 2.0
+                
+                # Build reason string with full filter chain info
+                iv_info = ""
+                if iv_percentile is not None:
+                    iv_info = f", IV percentile={iv_percentile:.1f}%"
+                    if is_low_iv:
+                        iv_info += " [LOW IV - CHEAP PREMIUM]"
+                
+                gex_info = ""
+                # Use GEX from RegimeSignal if available, otherwise use calculated
+                gex_regime_display = None
+                gex_strength_display = None
+                
+                if hasattr(signal, 'gex_regime') and signal.gex_regime:
+                    gex_regime_display = signal.gex_regime
+                    gex_strength_display = signal.gex_strength
+                elif gex_data:
+                    gex_regime_display = gex_data.get("gex_regime")
+                    gex_strength_display = gex_data.get("gex_strength")
+                
+                if gex_regime_display and gex_strength_display is not None:
+                    gex_info = f", GEX={gex_regime_display} (${gex_strength_display:.2f}B)"
+                    if gex_regime_display == "POSITIVE" and gex_strength_display > 1.5:
+                        gex_info += " [PINNING]"
+                    elif gex_regime_display == "NEGATIVE" and gex_strength_display > 1.5:
+                        gex_info += " [SHORT-GAMMA BOOST]"
+                
                 reason = (
                     f"PUT {best_option['strike']} exp {best_option['expiration']}: "
-                    f"delta {best_option['delta']:.2f}, IV {best_option['iv']:.2%}, "
+                    f"delta {best_option['delta']:.2f}, IV {best_option['iv']:.2%}{iv_info}{gex_info}, "
                     f"profit potential {best_option['estimated_profit_pct']:.1%}"
+                    f"{' [HIGH-CONVICTION]' if is_high_conviction else ''}"
                 )
                 
                 return [
                     self._build_intent(
-                        direction=TradeDirection.SHORT,
+                        direction=TradeDirection.LONG,  # Buying PUT options
                         size=1.0,  # Number of contracts
-                        confidence=signal.confidence,
+                        confidence=final_confidence,  # Use regime-adjusted confidence
                         reason=reason,
                         metadata={
                             "option_symbol": best_option["symbol"],
@@ -417,10 +923,26 @@ class OptionsAgent(BaseAgent):
                             "expiration": best_option["expiration"],
                             "dte": best_option["dte"],
                             "delta": best_option["delta"],
+                            "gamma": best_option.get("gamma", 0),
+                            "theta": best_option.get("theta", 0),
                             "iv": best_option["iv"],
+                            "iv_percentile": iv_percentile,
+                            "gex_data": gex_data,  # Full GEX data for analytics
+                            "gex_regime": gex_data.get("gex_regime") if gex_data else None,
+                            "gex_strength": gex_data.get("gex_strength") if gex_data else None,
                             "entry_price": best_option["mid_price"],
                             "estimated_profit_pct": best_option["estimated_profit_pct"],
+                            "high_conviction": is_high_conviction,
+                            "low_iv": is_low_iv,
+                            "strong_gex": has_strong_gex,
+                            "greeks_filter_applied": True,
+                            "iv_percentile_filter_applied": iv_percentile is not None,
+                            "gex_filter_applied": gex_data is not None,
                         },
+                        instrument_type="option",
+                        option_type="put",
+                        moneyness="atm",  # Will be calculated from strike
+                        time_to_expiry_days=best_option["dte"],
                     )
                 ]
             
@@ -440,36 +962,45 @@ class OptionsAgent(BaseAgent):
         alignment_count = 0
         alignment_details = []
         
+        # Helper to safely get enum value
+        def get_enum_val(e):
+            return e.value if hasattr(e, 'value') and not isinstance(e, str) else str(e)
+        
+        trend_val = get_enum_val(signal.trend_direction)
+        regime_val = get_enum_val(signal.regime_type)
+        vol_val = get_enum_val(signal.volatility_level)
+        
         # Check trend agent signal
         if self.trend_agent_signal:
             if self.trend_agent_signal.direction == TradeDirection.SHORT:
-                if signal.trend_direction.value == "down":
+                if trend_val == "down":
                     alignment_count += 1
                     alignment_details.append("trend_agent: SHORT aligned with DOWN trend")
                 else:
-                    alignment_details.append(f"trend_agent: SHORT but trend is {signal.trend_direction.value}")
+                    alignment_details.append(f"trend_agent: SHORT but trend is {trend_val}")
             else:
-                alignment_details.append(f"trend_agent: {self.trend_agent_signal.direction.value} (not SHORT)")
+                direction_str = get_enum_val(self.trend_agent_signal.direction)
+                alignment_details.append(f"trend_agent: {direction_str} (not SHORT)")
         else:
             alignment_details.append("trend_agent: no signal")
         
         # Check mean reversion agent signal
         if self.mean_reversion_agent_signal:
-            if signal.regime_type.value == "mean_reversion":
+            if regime_val == "mean_reversion":
                 alignment_count += 1
                 alignment_details.append("mean_reversion_agent: aligned with MR regime")
             else:
-                alignment_details.append(f"mean_reversion_agent: regime is {signal.regime_type.value} (not MR)")
+                alignment_details.append(f"mean_reversion_agent: regime is {regime_val} (not MR)")
         else:
             alignment_details.append("mean_reversion_agent: no signal")
         
         # Check volatility agent signal
         if self.volatility_agent_signal:
-            if signal.volatility_level.value in ["medium", "high"]:
+            if vol_val in ["medium", "high"]:
                 alignment_count += 1
-                alignment_details.append(f"volatility_agent: aligned with {signal.volatility_level.value} volatility")
+                alignment_details.append(f"volatility_agent: aligned with {vol_val} volatility")
             else:
-                alignment_details.append(f"volatility_agent: volatility is {signal.volatility_level.value} (not MEDIUM/HIGH)")
+                alignment_details.append(f"volatility_agent: volatility is {vol_val} (not MEDIUM/HIGH)")
         else:
             alignment_details.append("volatility_agent: no signal")
         

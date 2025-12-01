@@ -69,6 +69,11 @@ class BotManager:
         self.agent_fitness_history: Dict[str, List[float]] = {agent.name: [] for agent in agents}
         self.weight_history: Dict[str, List[float]] = {}
         self.regime_history: List[str] = []
+        
+        # Options visualization data tracking
+        self.options_equity_history: List[tuple[datetime, float]] = []  # (timestamp, equity_value)
+        self.options_pnl_by_symbol: Dict[str, float] = {}  # symbol -> cumulative_pnl
+        self.options_initial_capital: float = 0.0  # Starting capital for options book
 
         # Live trading components
         self.live_loop: Optional[LiveTradingLoop] = None
@@ -121,7 +126,136 @@ class BotManager:
 
     def get_recent_trades(self, limit: int = 50) -> List[Trade]:
         """Get recent trades from portfolio."""
-        return self.portfolio.trade_history[-limit:]
+        if not self.portfolio:
+            return []
+        trades = self.portfolio.trade_history[-limit:]
+        # Validate and fix timestamp issues (entry_time should be before exit_time)
+        for trade in trades:
+            if trade.entry_time > trade.exit_time:
+                # Swap if backwards (shouldn't happen, but fix if it does)
+                logger.warning(f"⚠️ [BotManager] Found backwards timestamp in trade: {trade.symbol}, entry={trade.entry_time}, exit={trade.exit_time}")
+                trade.entry_time, trade.exit_time = trade.exit_time, trade.entry_time
+                trade.entry_price, trade.exit_price = trade.exit_price, trade.entry_price
+                # Recalculate PnL with swapped prices
+                if trade.quantity > 0:  # Long position
+                    trade.pnl = (trade.exit_price - trade.entry_price) * trade.quantity
+                else:  # Short position
+                    trade.pnl = (trade.entry_price - trade.exit_price) * abs(trade.quantity)
+                trade.pnl_pct = ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100.0 if trade.entry_price > 0 else 0.0
+        return trades
+    
+    def get_roundtrip_trades(
+        self, 
+        symbol: Optional[str] = None, 
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[Trade]:
+        """
+        Get round-trip trades with optional filtering.
+        
+        Args:
+            symbol: Filter by symbol (optional)
+            start_date: Filter trades starting from this date (optional)
+            end_date: Filter trades up to this date (optional)
+            limit: Maximum number of trades to return
+            
+        Returns:
+            List of Trade objects (already round-trips with entry/exit)
+        """
+        if not self.portfolio:
+            return []
+        
+        trades = self.portfolio.trade_history.copy()
+        
+        # Filter by symbol
+        if symbol:
+            trades = [t for t in trades if t.symbol.upper() == symbol.upper()]
+        
+        # Filter by date range
+        if start_date:
+            trades = [t for t in trades if t.entry_time >= start_date]
+    
+    def get_options_roundtrip_trades(
+        self,
+        symbol: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List:
+        """
+        Get round-trip options trades with optional filtering.
+        
+        Args:
+            symbol: Filter by underlying symbol (optional)
+            start_date: Filter trades starting from this date (optional)
+            end_date: Filter trades up to this date (optional)
+            limit: Maximum number of trades to return
+            
+        Returns:
+            List of OptionTrade objects
+        """
+        if not self.live_loop or not hasattr(self.live_loop, 'options_portfolio'):
+            return []
+        
+        trades = self.live_loop.options_portfolio.get_round_trip_trades(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        
+        return trades
+    
+    def get_options_equity_history(self) -> List[tuple[datetime, float]]:
+        """Get options equity history for visualization."""
+        return self.options_equity_history.copy()
+    
+    def get_options_pnl_by_symbol(self) -> Dict[str, float]:
+        """Get cumulative options P&L by symbol."""
+        return self.options_pnl_by_symbol.copy()
+    
+    def update_options_metrics(self, trade_exit_time: datetime) -> None:
+        """
+        Update options equity history and P&L by symbol when an options trade closes.
+        This should be called from the scheduler when an options position is closed.
+        """
+        if not self.live_loop or not hasattr(self.live_loop, 'options_portfolio'):
+            return
+        
+        # Calculate total options P&L from all completed trades
+        all_trades = self.live_loop.options_portfolio.trades
+        total_pnl = sum(t.pnl for t in all_trades)
+        
+        # Calculate current unrealized P&L from open positions
+        unrealized_pnl = 0.0
+        if hasattr(self.live_loop, 'options_executor') and self.live_loop.options_executor:
+            # Get current underlying prices from the last bar processed
+            # This is approximate - in a real system we'd track this more precisely
+            for pos in self.live_loop.options_portfolio.get_all_positions():
+                unrealized_pnl += pos.unrealized_pnl
+        
+        # Calculate total options equity
+        if self.options_initial_capital == 0.0:
+            # Initialize with portfolio's initial capital (or a fraction of it)
+            self.options_initial_capital = self.portfolio.initial_capital * 0.1  # 10% allocated to options
+        
+        options_equity = self.options_initial_capital + total_pnl + unrealized_pnl
+        
+        # Update equity history
+        self.options_equity_history.append((trade_exit_time, options_equity))
+        if len(self.options_equity_history) > 1000:  # Keep last 1000 points
+            self.options_equity_history.pop(0)
+        
+        # Update P&L by symbol
+        for trade in all_trades:
+            symbol = trade.symbol
+            if symbol not in self.options_pnl_by_symbol:
+                self.options_pnl_by_symbol[symbol] = 0.0
+            # Sum all P&L for this symbol
+            self.options_pnl_by_symbol[symbol] = sum(
+                t.pnl for t in all_trades if t.symbol == symbol
+            )
 
     def get_recent_intents(self, limit: int = 50) -> List[FinalTradeIntent]:
         """Get recent trade intents."""
@@ -234,6 +368,11 @@ class BotManager:
                 self.weight_history[agent_name].append(weight)
                 if len(self.weight_history[agent_name]) > 500:
                     self.weight_history[agent_name].pop(0)
+        
+        # Update options metrics periodically (every bar, but it's lightweight)
+        if self.live_loop and hasattr(self.live_loop, 'options_portfolio') and self.live_loop.options_portfolio:
+            # Update options metrics with current timestamp
+            self.update_options_metrics(self.state.last_update_time)
 
     def get_regime_distribution(self) -> Dict[str, int]:
         """Get distribution of regime types from history."""
@@ -322,6 +461,41 @@ class BotManager:
                 updated_agents.append(spy_ema_agent)
                 logger.info("Added EMA agent for SPY (9 EMA momentum strategy)")
         
+        # Initialize options data feed for real options trading
+        options_data_feed = None
+        try:
+            import os
+            from services.options_data_feed import OptionsDataFeed
+            
+            # Try Alpaca first, then Polygon
+            alpaca_key = os.getenv("ALPACA_API_KEY")
+            alpaca_secret = os.getenv("ALPACA_API_SECRET")
+            polygon_key = os.getenv("POLYGON_API_KEY") or os.getenv("MASSIVE_API_KEY")
+            
+            if alpaca_key and alpaca_secret:
+                options_data_feed = OptionsDataFeed(
+                    api_provider="alpaca",
+                    api_key=alpaca_key,
+                    api_secret=alpaca_secret,
+                )
+                logger.info("✅ Options data feed initialized (Alpaca) for live trading")
+            elif polygon_key:
+                options_data_feed = OptionsDataFeed(
+                    api_provider="polygon",
+                    api_key=polygon_key,
+                )
+                logger.info("✅ Options data feed initialized (Polygon) for live trading")
+            else:
+                logger.warning("⚠️ No options API credentials found - options agent will use synthetic pricing")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize options data feed: {e} - options agent will use synthetic pricing")
+        
+        # Update options agents with real data feed if available
+        for agent in updated_agents:
+            if hasattr(agent, 'options_data_feed') and options_data_feed:
+                agent.options_data_feed = options_data_feed
+                logger.info(f"✅ Connected real options data feed to {agent.name}")
+        
         # Use updated agents
         agents_to_use = updated_agents
 
@@ -396,7 +570,17 @@ class BotManager:
     def get_live_status(self) -> Dict[str, any]:
         """Get live trading status."""
         if not self.live_loop:
-            return {"mode": "backtest", "is_running": False}
+            return {
+                "mode": "backtest",
+                "is_running": False,
+                "is_paused": False,
+                "bar_count": 0,
+                "last_bar_time": None,
+                "error": None,
+                "stop_reason": None,
+                "bars_per_symbol": {},
+                "symbols": [],
+            }
 
         loop_status = self.live_loop.get_status()
         

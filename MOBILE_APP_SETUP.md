@@ -132,3 +132,4 @@ If you encounter issues:
 
 Enjoy trading on the go! 📱📈
 
+

@@ -109,3 +109,4 @@ If still not working, check:
 2. Network tab for failed resource loads
 3. Server logs: `tail -f /tmp/futbot_server.log`
 
+

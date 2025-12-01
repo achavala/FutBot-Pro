@@ -49,6 +49,7 @@ class CachedDataFeed(BaseDataFeed):
         self.current_indices: dict[str, int] = {}  # Track current position in cached data
         self.cached_data: dict[str, list] = {}  # Store loaded cached data
         self.synthetic_enabled: bool = True  # Enable synthetic bar generation as fallback
+        self.strict_data_mode: bool = False  # If True, fail hard when cached data is missing (production safety)
         
         self.connected = False
         
@@ -88,32 +89,74 @@ class CachedDataFeed(BaseDataFeed):
             
             # If start_date or end_date is specified, load data in that range
             if self.start_date or self.end_date:
-                start_ts = int(self.start_date.timestamp() * 1000) if self.start_date else None
-                end_ts = int(self.end_date.timestamp() * 1000) if self.end_date else None
-                cached_df = self.cache.load(symbol, self.bar_size, start_ts=start_ts, end_ts=end_ts)
+                # Ensure timezone-aware timestamps for accurate conversion
+                start_date_utc = self.start_date
+                end_date_utc = self.end_date
+                if start_date_utc and start_date_utc.tzinfo is None:
+                    start_date_utc = start_date_utc.replace(tzinfo=timezone.utc)
+                if end_date_utc and end_date_utc.tzinfo is None:
+                    end_date_utc = end_date_utc.replace(tzinfo=timezone.utc)
+                
+                start_ts = int(start_date_utc.timestamp() * 1000) if start_date_utc else None
+                end_ts = int(end_date_utc.timestamp() * 1000) if end_date_utc else None
+                
+                # Normalize timeframe for cache lookup (cache uses lowercase "1min", not "1Min")
+                cache_timeframe = self.bar_size.lower().replace("minute", "min")
+                logger.info(f"📅 [CachedDataFeed] Querying cache: symbol={symbol}, timeframe={cache_timeframe} (normalized from {self.bar_size}), start_ts={start_ts}, end_ts={end_ts}")
+                cached_df = self.cache.load(symbol, cache_timeframe, start_ts=start_ts, end_ts=end_ts)
+                
                 if self.start_date and self.end_date:
-                    logger.info(f"Loading data from {self.start_date} to {self.end_date} for {symbol}")
+                    logger.info(f"📅 [CachedDataFeed] Loading data from {self.start_date} to {self.end_date} for {symbol}")
                 elif self.start_date:
-                    logger.info(f"Loading data from {self.start_date} onwards for {symbol}")
+                    logger.info(f"📅 [CachedDataFeed] Loading data from {self.start_date} onwards for {symbol}")
                 elif self.end_date:
-                    logger.info(f"Loading data up to {self.end_date} for {symbol}")
+                    logger.info(f"📅 [CachedDataFeed] Loading data up to {self.end_date} for {symbol}")
+                
+                if cached_df.empty:
+                    logger.warning(f"⚠️ [CachedDataFeed] No data found in cache for {symbol} in date range. Checking if data exists without date filter...")
+                    # Try loading without date filter to see if data exists
+                    cache_timeframe = self.bar_size.lower().replace("minute", "min")
+                    test_df = self.cache.load(symbol, cache_timeframe)
+                    if not test_df.empty:
+                        logger.warning(f"⚠️ [CachedDataFeed] Found {len(test_df)} bars for {symbol} without date filter")
+                        logger.warning(f"   Date range in cache: {test_df.index[0]} to {test_df.index[-1]}")
+                        logger.warning(f"   Requested range: {self.start_date} to {self.end_date}")
+                        logger.warning(f"   ⚠️ Date range mismatch - data exists but not in requested range!")
             else:
-                cached_df = self.cache.load(symbol, self.bar_size)
+                # Normalize timeframe for cache lookup
+                cache_timeframe = self.bar_size.lower().replace("minute", "min")
+                cached_df = self.cache.load(symbol, cache_timeframe)
             
             if cached_df.empty:
+                # STRICT MODE: Fail hard if data is expected but missing (production safety)
+                if self.strict_data_mode:
+                    error_msg = f"🚨 [CachedDataFeed] STRICT MODE: No cached data found for {symbol} in requested range ({self.start_date} to {self.end_date}). Aborting to prevent trading with incorrect data."
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
                 # Only generate synthetic bars in offline/simulation mode
                 # Never use synthetic bars for live trading
                 from core.live.scheduler import LiveTradingConfig
                 # Check if we're in offline mode (synthetic bars are safe for simulation only)
                 # If this is called from live trading, we should not generate synthetic bars
-                logger.warning(f"No cached data found for {symbol}")
+                logger.warning(f"[SyntheticBarFallback] No cached data found for {symbol}")
                 
                 # Generate synthetic bars ONLY for offline simulation (not live trading)
                 # This is safe because offline_mode=True ensures we're not trading with real money
-                logger.info(f"Generating synthetic bars for offline simulation: {symbol}")
+                logger.warning(f"⚠️ [CachedDataFeed] [SyntheticBarFallback] No cached data found for {symbol} - generating SYNTHETIC bars")
+                logger.warning(f"   📅 Requested date range: {self.start_date} to {self.end_date}")
+                logger.warning(f"   ⚠️ These are SYNTHETIC bars - timestamps will match selected date but prices are simulated")
+                
+                # Generate synthetic bars with timestamps matching the selected date
                 bars_list = self._generate_synthetic_bars(symbol, preload_bars)
                 self.cached_data[symbol] = bars_list
-                logger.info(f"Generated {len(bars_list)} synthetic bars for {symbol} (offline mode only)")
+                
+                if len(bars_list) > 0:
+                    first_bar = bars_list[0]
+                    last_bar = bars_list[-1]
+                    logger.warning(f"⚠️ Generated {len(bars_list)} SYNTHETIC bars for {symbol}")
+                    logger.warning(f"   📅 Synthetic bar timestamps: {first_bar.timestamp} to {last_bar.timestamp}")
+                    logger.warning(f"   ⚠️ Prices are SIMULATED - not real market data!")
             else:
                 # Convert DataFrame to list of Bar objects
                 # Filter by start_date and end_date if specified
@@ -136,6 +179,10 @@ class CachedDataFeed(BaseDataFeed):
                     if self.end_date and bar_time > self.end_date:
                         continue
                     
+                    # Log first bar to verify date filtering is working
+                    if len(bars_list) == 0:
+                        logger.info(f"📅 [CachedDataFeed] First bar for {symbol}: {bar_time} (start_date filter: {self.start_date})")
+                    
                     bar = Bar(
                         symbol=symbol,
                         timestamp=bar_time,
@@ -148,7 +195,14 @@ class CachedDataFeed(BaseDataFeed):
                     bars_list.append(bar)
                 
                 self.cached_data[symbol] = bars_list
-                logger.info(f"Loaded {len(bars_list)} cached bars for {symbol} (filtered by time window)")
+                if len(bars_list) > 0:
+                    first_bar = bars_list[0]
+                    last_bar = bars_list[-1]
+                    logger.info(f"✅ [CachedDataFeed] Loaded {len(bars_list)} REAL cached bars for {symbol}")
+                    logger.info(f"   📅 Date range: {first_bar.timestamp} to {last_bar.timestamp}")
+                    logger.info(f"   📅 First bar date: {first_bar.timestamp.strftime('%Y-%m-%d %H:%M:%S %Z') if hasattr(first_bar.timestamp, 'strftime') else first_bar.timestamp}")
+                else:
+                    logger.warning(f"⚠️ [CachedDataFeed] No bars loaded for {symbol} in date range {self.start_date} to {self.end_date}")
             
             # Preload bars into buffer (works for both cached and synthetic)
             if symbol in self.cached_data and len(self.cached_data[symbol]) > 0:
@@ -175,23 +229,44 @@ class CachedDataFeed(BaseDataFeed):
         import random
         from datetime import datetime, timedelta
         
-        # Default prices for common symbols
-        default_prices = {
-            "QQQ": 400.0,
-            "SPY": 450.0,
-            "SPX": 4500.0,
-            "BTC/USD": 50000.0,
-            "ETH/USD": 3000.0,
-        }
+        # Try to get actual price from cache first (for more accurate synthetic bars)
+        base_price = None
+        try:
+            # Get most recent cached price for this symbol (normalize timeframe)
+            cache_timeframe = self.bar_size.lower().replace("minute", "min")
+            cached_df = self.cache.load(symbol, cache_timeframe)
+            if not cached_df.empty:
+                base_price = float(cached_df["close"].iloc[-1])
+                logger.info(f"📊 [CachedDataFeed] Using cached price {base_price:.2f} as base for synthetic bars")
+        except Exception as e:
+            logger.debug(f"Could not load cached price for {symbol}: {e}")
         
-        # Start with default price or random if unknown
-        base_price = default_prices.get(symbol, random.uniform(100.0, 500.0))
+        # Fallback to default prices if cache lookup failed
+        if base_price is None or base_price <= 0:
+            default_prices = {
+                "QQQ": 600.0,  # Updated to match Nov 2025 prices
+                "SPY": 550.0,  # Updated to match Nov 2025 prices
+                "SPX": 5500.0,
+                "BTC/USD": 50000.0,
+                "ETH/USD": 3000.0,
+            }
+            base_price = default_prices.get(symbol, random.uniform(100.0, 500.0))
+            logger.warning(f"⚠️ [CachedDataFeed] Using default price {base_price:.2f} for {symbol} (no cached data found)")
         current_price = base_price
         
         bars_list = []
-        now = datetime.now(timezone.utc)
         
-        # Generate bars going backwards in time
+        # Use start_date if available (for historical simulation), otherwise use current time
+        if self.start_date:
+            # For historical simulation, start from the selected date
+            base_time = self.start_date
+            logger.info(f"📅 [CachedDataFeed] Generating synthetic bars starting from selected date: {base_time}")
+        else:
+            # Fallback: use current time (for testing without date selection)
+            base_time = datetime.now(timezone.utc)
+            logger.warning(f"⚠️ [CachedDataFeed] No start_date specified, using current time for synthetic bars")
+        
+        # Generate bars going forward in time from start_date
         for i in range(count):
             # Random walk: ±0.5% change per bar
             change_pct = random.uniform(-0.005, 0.005)
@@ -202,8 +277,13 @@ class CachedDataFeed(BaseDataFeed):
             low = min(current_price, new_price) * (1 - abs(random.uniform(0, 0.002)))
             volume = random.uniform(1000000, 10000000)
             
-            # Timestamp going backwards
-            bar_time = now - timedelta(minutes=count - i)
+            # Timestamp: start from base_time and go forward (1 minute per bar for 1Min bars)
+            if "Min" in self.bar_size:
+                minutes = int(self.bar_size.replace("Min", ""))
+                bar_time = base_time + timedelta(minutes=i * minutes)
+            else:
+                # Default: 1 minute intervals
+                bar_time = base_time + timedelta(minutes=i)
             
             bar = Bar(
                 symbol=symbol,
@@ -238,6 +318,17 @@ class CachedDataFeed(BaseDataFeed):
         # First, check if we have bars in buffer
         if symbol in self.bar_buffers and len(self.bar_buffers[symbol]) > 0:
             bar = self.bar_buffers[symbol].popleft()
+            # CRITICAL FIX: Validate bar symbol matches requested symbol to prevent cross-symbol contamination
+            if bar.symbol != symbol:
+                logger.error(f"🚨 [CachedDataFeed] SYMBOL MISMATCH: Requested {symbol} but got bar with symbol {bar.symbol}! Discarding bar.")
+                # Try to get another bar
+                if len(self.bar_buffers[symbol]) > 0:
+                    bar = self.bar_buffers[symbol].popleft()
+                    if bar.symbol != symbol:
+                        logger.error(f"🚨 [CachedDataFeed] Multiple symbol mismatches for {symbol}, returning None")
+                        return None
+                else:
+                    return None
             logger.debug(f"Returning buffered bar for {symbol}: {bar.timestamp}")
             return bar
 
@@ -276,9 +367,22 @@ class CachedDataFeed(BaseDataFeed):
             return None
         
         bar = cached_bars[current_idx]
+        # CRITICAL FIX: Validate bar symbol matches requested symbol to prevent cross-symbol contamination
+        if bar.symbol != symbol:
+            logger.error(f"🚨 [CachedDataFeed] SYMBOL MISMATCH: Requested {symbol} but cached bar at index {current_idx} has symbol {bar.symbol}! This indicates data corruption.")
+            # Try to find a bar with the correct symbol
+            for idx in range(current_idx, min(current_idx + 10, len(cached_bars))):
+                test_bar = cached_bars[idx]
+                if test_bar.symbol == symbol:
+                    logger.warning(f"⚠️ [CachedDataFeed] Found correct symbol at index {idx}, skipping {idx - current_idx} mismatched bars")
+                    self.current_indices[symbol] = idx + 1
+                    return test_bar
+            logger.error(f"🚨 [CachedDataFeed] No bars with correct symbol {symbol} found in cache, returning None")
+            return None
+        
         self.current_indices[symbol] = current_idx + 1
         
-        logger.debug(f"Returning cached bar {current_idx + 1}/{len(cached_bars)} for {symbol}: {bar.timestamp}")
+        logger.debug(f"Returning cached bar {current_idx + 1}/{len(cached_bars)} for {symbol}: {bar.timestamp}, price={bar.close:.2f}")
         return bar
 
     def get_next_n_bars(self, symbol: str, n: int = 10, timeout: float = 5.0) -> List[Bar]:
@@ -316,9 +420,16 @@ class CachedDataFeed(BaseDataFeed):
         # If we still need more bars, get from cached data
         if len(bars) < n:
             # CRITICAL: Check if we have cached_data and haven't exhausted it
+            # Skip bars that were already processed during preload
             if symbol in self.cached_data and len(self.cached_data[symbol]) > 0:
                 current_idx = self.current_indices.get(symbol, 0)
                 cached_bars = self.cached_data[symbol]
+                
+                # Skip past preloaded bars (first 100 bars were already processed)
+                # This prevents re-processing the same bars
+                if current_idx < 100 and len(cached_bars) > 100:
+                    logger.debug(f"⏭️ [CachedDataFeed] Skipping preloaded bars (idx 0-99), starting from idx {current_idx}")
+                    # current_idx will be updated by the loop as it processes bars
                 
                 # Get remaining bars needed
                 remaining = n - len(bars)

@@ -74,16 +74,49 @@ class MetaPolicyController:
         market_state: Mapping[str, float],
         agents: Sequence[BaseAgent],
     ) -> List[TradeIntent]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         intents: List[TradeIntent] = []
+        agent_failures = []
+        logger.info(f"🔍 [Controller] Collecting intents from {len(agents)} agents")
         for agent in agents:
-            agent_intents = agent.evaluate(signal, market_state)
-            intents.extend(agent_intents)
-            if agent_intents and self.adaptor:
-                self.adaptor.record_agent_signal(agent.name)
+            try:
+                agent_intents = agent.evaluate(signal, market_state)
+                logger.info(f"🔍 [Controller] Agent {agent.name} generated {len(agent_intents)} intents")
+                if agent_intents:
+                    for intent in agent_intents:
+                        # Handle both enum and string for direction
+                        direction_str = intent.direction.value if hasattr(intent.direction, 'value') else str(intent.direction)
+                        logger.info(f"  → Intent: {direction_str}, confidence={intent.confidence:.2f}, size={intent.size:.4f}, reason={intent.reason}")
+                intents.extend(agent_intents)
+                if agent_intents and self.adaptor:
+                    self.adaptor.record_agent_signal(agent.name)
+            except Exception as e:
+                agent_failures.append(agent.name)
+                logger.error(f"❌ [Controller] Agent {agent.name} evaluation failed: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        # HARD FAIL: If ALL agents failed, raise exception to halt the run
+        if len(agent_failures) == len(agents) and len(agents) > 0:
+            error_msg = f"🚨 FATAL: All {len(agents)} agents failed evaluation. Halting run."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        logger.info(f"🔍 [Controller] Total intents collected: {len(intents)} (failures: {len(agent_failures)}/{len(agents)})")
         return intents
 
     def filter_intents(self, intents: Sequence[TradeIntent], signal: RegimeSignal, testing_mode: bool = False) -> List[TradeIntent]:
-        return filters.apply_filters(intents, signal, self.filter_config, testing_mode=testing_mode)
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🔍 [Controller] Filtering {len(intents)} intents (testing_mode={testing_mode})")
+        filtered = filters.apply_filters(intents, signal, self.filter_config, testing_mode=testing_mode)
+        logger.info(f"🔍 [Controller] After filtering: {len(filtered)} intents remain")
+        if len(intents) > 0 and len(filtered) == 0:
+            logger.warning(f"⚠️ [Controller] All {len(intents)} intents were filtered out!")
+        return filtered
 
     def score_intents(self, intents: Sequence[TradeIntent], signal: RegimeSignal) -> Sequence[scoring.ScoredIntent]:
         return scoring.score_intents(intents, signal, self.adaptor)
@@ -95,7 +128,12 @@ class MetaPolicyController:
         signal: Optional[RegimeSignal] = None,
         testing_mode: bool = False,
     ) -> FinalTradeIntent:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"🔍 [Controller] Arbitrating {len(scored_intents)} scored intents (testing_mode={testing_mode})")
         if not scored_intents:
+            logger.warning(f"⚠️ [Controller] No scored intents - returning empty decision")
             return self._empty_decision(reason="No valid agent signals")
 
         sorted_intents = sorted(scored_intents, key=lambda s: s.score, reverse=True)
@@ -141,17 +179,25 @@ class MetaPolicyController:
                 confidence = 0.1  # Force minimum confidence
                 logger.info(f"🔥 [TestingMode] FORCING trade with 0.1% confidence")
             else:
+                logger.warning(f"⚠️ [Controller] Confidence {confidence:.2f} below threshold {min_final:.2f} - returning empty decision")
                 return self._empty_decision(reason=f"Confidence below threshold ({confidence:.2f} < {min_final:.2f})")
 
         reason = primary.intent.reason if not close_intents else "Blended agent consensus"
-        return FinalTradeIntent(
+        # Pass through options fields from primary intent
+        final_intent = FinalTradeIntent(
             position_delta=position_delta,
             confidence=confidence,
             primary_agent=primary.intent.agent_name,
             contributing_agents=contributing,
             reason=reason,
             is_valid=True,
+            instrument_type=primary.intent.instrument_type,
+            option_type=primary.intent.option_type,
+            moneyness=primary.intent.moneyness,
+            time_to_expiry_days=primary.intent.time_to_expiry_days,
         )
+        logger.info(f"✅ [Controller] Final intent: delta={position_delta:.4f}, confidence={confidence:.2f}, agent={primary.intent.agent_name}, reason={reason}")
+        return final_intent
 
     def _empty_decision(self, reason: str) -> FinalTradeIntent:
         return FinalTradeIntent(
