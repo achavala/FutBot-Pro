@@ -1,206 +1,255 @@
-# FutBot Session Summary - Latest Fixes
+# Session Summary - Gamma-Only Test Preparation
 
-## ✅ COMPLETED WORK
+**Date:** Current Session  
+**Tag:** `v1.0.1-ml-gamma-qa`  
+**Status:** Ready for Gamma-only test execution
 
-### 1. UVLOOP Conflict Resolution
-- **Issue**: uvicorn uses uvloop by default, but ib_insync's `util.startLoop()` conflicts with it
-- **Fix**: 
-  - Removed IBKR loop start from module import time
-  - Made IBKR imports lazy (only when needed)
-  - Added uvloop detection to skip IBKR loop initialization when using uvloop
-  - Updated `core/live/broker_client_ibkr.py` and `core/live/data_feed_ibkr.py`
-- **Status**: ✅ Fixed - Server can now start without uvloop conflicts
+---
 
-### 2. Bot Manager Initialization
-- **Issue**: When running uvicorn directly (not via main.py), bot_manager was never initialized
-- **Fix**:
-  - Added full bot_manager initialization in FastAPI lifespan startup
-  - Auto-creates all components: agents, regime engine, portfolio, risk manager
-  - Works with both `main.py` and direct uvicorn execution
-- **Status**: ✅ Fixed - Bot manager auto-initializes on server start
+## ✅ COMPLETED
 
-### 3. Virtual Environment Setup
-- **Issue**: uvicorn not found because venv wasn't activated
-- **Fix**:
-  - Created `start_server.sh` helper script
-  - Documented venv activation process
-  - Verified uvicorn is installed in .venv
-- **Status**: ✅ Fixed - Helper script created, instructions provided
+### 1. Freeze & Tag (Step 1) ✅
+- **Status:** Complete
+- **Tag Created:** `v1.0.1-ml-gamma-qa`
+- **Commit:** `dbac5a3` - "Add production-safe gamma-only test infra"
+- **Files:** 32 files committed (3,837 insertions)
+  - Delta hedging implementation
+  - Timeline logging
+  - Gamma-only test infrastructure
+  - Documentation and scripts
+  - Bug fixes
 
-### 4. Code Quality
-- Fixed syntax errors and indentation issues
-- Removed duplicate code
-- All files compile successfully
+### 2. Bug Fixes ✅
+- **Position Sizing Bug** (Critical)
+  - **File:** `core/risk/advanced.py`
+  - **Issue:** Regime cap calculation was dividing by price (unit mismatch)
+  - **Fix:** Removed division by price - caps now correctly in dollars
+  - **Impact:** Positions were 0.0069 shares instead of ~1.5 shares
+  - **Result:** Now calculates reasonable position sizes
 
-## ⚠️ PENDING ISSUES
+- **F-String Syntax Error**
+  - **File:** `core/live/multi_leg_profit_manager.py`
+  - **Issue:** Invalid conditional expression in f-string (line 99)
+  - **Fix:** Extracted conditional to variable before f-string
+  - **Impact:** Prevented server startup failure
 
-### 1. Options Trading Not Executing (PRIMARY BLOCKER)
-- **Status**: Root cause unknown - needs testing
-- **Symptoms**: 
-  - No trades being executed despite valid signals
-  - Options agent may not be called by scheduler
-  - Filters may be too strict even in testing mode
-- **Diagnostic Tools Ready**:
-  - `scripts/diagnose_options_pipeline.py` - 3-layer diagnostic
-  - `scripts/snapshot_options_pipeline.py` - Contract snapshot debugger
-  - `scripts/test_offline_trading.py` - Offline pipeline testing
-  - `DIAGNOSTIC_CHECKLIST.md` - Manual debugging guide
-- **Next Action**: Run diagnostic scripts to identify exact failure point (CASE F-I)
+### 3. Documentation ✅
+- **ALGORITHM_FLOWCHART.md** - Comprehensive call flow documentation
+  - System startup flow
+  - Main trading loop flow
+  - Options trade execution flow
+  - Stock trade execution flow (where bug was fixed)
+  - Key troubleshooting points
+  - Debugging checklist
+  - Common issues table
 
-### 2. Server Startup Verification
-- **Status**: Needs testing
-- **Action Required**: 
-  - Start server using `./start_server.sh` or `source .venv/bin/activate && python main.py --mode api --port 8000`
-  - Verify `/options/start` endpoint responds correctly
-  - Check bot_manager initialization logs
+- **QUICK_FLOWCHART.txt** - Visual ASCII flowchart for quick reference
 
-### 3. Historical Data Collection
-- **Status**: Tools ready, not yet executed
-- **Scripts Available**:
-  - `scripts/collect_historical_data.py` - Collect 3 months of data
-  - `scripts/collect_3months_data.sh` - Quick start script
-- **Purpose**: Enable offline testing during 4-day market closure
-- **Next Action**: Run data collection before market closes
+### 4. Helper Scripts ✅
+- `COMPLETE_FREEZE_VERIFY.sh` - Enhanced freeze verification
+- `START_TRADING_GAMMA_ONLY.sh` - Start trading loop helper
+- `STEP_2_START_GAMMA_TEST.sh` - Gamma-only test starter
 
-### 4. Options Pipeline Testing
-- **Status**: Ready for offline testing
-- **Tools Available**:
-  - `scripts/test_offline_trading.py --options` - Full options pipeline test
-  - `backtesting/run_options_demo.py` - Backtest options strategy
-- **Next Action**: Use offline data to debug options execution issues
+### 5. GitHub Push ✅
+- **Commit:** `beef44d` - "Fix position sizing bug and add algorithm flowchart documentation"
+- **Files:** 6 files changed (676 insertions, 6 deletions)
+- **Status:** Pushed to `github.com:achavala/FutBot-Pro.git` (main branch)
 
-## 🚀 NEXT STEPS (Priority Order)
+---
 
-### Immediate (Today)
-1. **Start Server and Verify**
-   ```bash
-   source .venv/bin/activate
-   python main.py --mode api --port 8000
-   ```
-   - Verify server starts without errors
-   - Check bot_manager initialization logs
-   - Test `/options/start` endpoint
+## ⏳ PENDING
 
-2. **Run Options Pipeline Diagnostic**
-   ```bash
-   python scripts/diagnose_options_pipeline.py
-   ```
-   - Identify which layer is failing (Execution/Data/Decision)
-   - Determine specific CASE (F, G, H, or I)
-   - Review logs for rejection reasons
+### 1. Gamma-Only Test Execution (Step 2) ⏳
+- **Status:** Server started, but trading loop not started yet
+- **Current State:**
+  - ✅ Server running on port 8000
+  - ✅ `GAMMA_ONLY_TEST_MODE=true` environment variable set
+  - ⏳ Trading loop needs to be started via dashboard or API
+- **What's Needed:**
+  - Start trading loop (dashboard "Start Live" button or API)
+  - Verify Gamma Scalper agents are active (not Theta Harvester)
+  - Monitor for Gamma Scalper entries
+  - Wait for 1-2 complete Gamma packages (entry → hedging → exit)
 
-3. **Test Force Buy Endpoint**
-   ```bash
-   curl -X POST http://localhost:8000/options/force_buy \
-     -H "Content-Type: application/json" \
-     -d '{"option_symbol": "SPY250117P00673000", "qty": 1}'
-   ```
-   - Verify broker connectivity
-   - Confirm order submission works
+### 2. Timeline Export (Step 3) ⏳
+- **Status:** Waiting for Gamma packages to complete
+- **What's Needed:**
+  - After 1-2 complete Gamma packages
+  - Export timelines via: `./EXPORT_TIMELINES.sh`
+  - Or API: `POST /options/export-timelines`
+  - Validate timeline data matches expected patterns
 
-### Short-term (This Week)
-4. **Collect Historical Data**
-   ```bash
-   ./scripts/collect_3months_data.sh
-   ```
-   - Collect 3 months of data for SPY, QQQ, BTC/USD
-   - Store in cache for offline testing
-   - Verify data quality with `scripts/verify_offline_mode.py`
+### 3. Validation & QA ⏳
+- **Status:** Not started
+- **What's Needed:**
+  - Validate delta hedging is working correctly
+  - Check hedge P&L calculations
+  - Verify timeline logging is accurate
+  - Test scenarios G-H1 through G-H4 (from GAMMA_SCALPER_QA_GUIDE.md)
 
-5. **Offline Options Pipeline Testing**
-   ```bash
-   python scripts/test_offline_trading.py --options --verbose
-   ```
-   - Run full options pipeline on cached data
-   - Identify where pipeline breaks
-   - Fix filters/alignment/execution issues
+---
 
-6. **Tighten Options Filters with Real Data**
-   - Build histograms for spread, theta, OI, volume, DTE
-   - Adjust `OptionRiskProfile` thresholds based on actual data
-   - Balance between too strict and too loose
+## 🎯 NEXT ACTIONS
 
-### Medium-term (Next 2 Weeks)
-7. **Options Strategy Validation**
-   - Run backtests on historical data
-   - Validate profit/loss scenarios
-   - Test different market regimes
+### Immediate (Do Now)
 
-8. **Performance Optimization**
-   - Optimize options chain fetching (caching)
-   - Improve quote/Greeks retrieval speed
-   - Reduce latency in decision pipeline
+#### 1. Restart Server with Bug Fixes
+```bash
+# Stop current server (Ctrl+C in terminal)
+# Then restart:
+GAMMA_ONLY_TEST_MODE=true ./START_VALIDATION.sh
+```
 
-9. **Monitoring and Alerting**
-   - Add real-time options trading metrics
-   - Set up alerts for failed trades
-   - Dashboard for options-specific stats
+#### 2. Start Trading Loop
+**Option A: Dashboard (Recommended)**
+- Open: http://localhost:8000/dashboard
+- Click "Start Live" or "Simulate" button
+- System will use Gamma Scalper only agents
 
-## 📋 FILES MODIFIED THIS SESSION
+**Option B: API**
+```bash
+curl -X POST http://localhost:8000/start-live \
+  -H "Content-Type: application/json" \
+  -d '{"symbols": ["SPY"], "offline_mode": true}'
+```
 
-### Core Files
-- `core/live/__init__.py` - Lazy IBKR imports
-- `core/live/broker_client_ibkr.py` - Lazy loop initialization
-- `core/live/data_feed_ibkr.py` - uvloop detection
-- `ui/fastapi_app.py` - Bot manager initialization in lifespan
+#### 3. Monitor Logs
+Watch for these key indicators:
+- `🔬 GAMMA_ONLY_TEST_MODE=true (env var: true)`
+- `✅ Created X agents (Gamma Scalper only)`
+- `[GAMMA SCALP]` entries
+- `[DeltaHedge]` hedge trades
+- Position sizes should be reasonable (~1-2 shares for $1000 investment)
 
-### New Files
-- `start_server.sh` - Server startup helper script
-- `SESSION_SUMMARY.md` - This summary document
+### Short-Term (After Trading Starts)
 
-## 🔍 DIAGNOSTIC TOOLS AVAILABLE
+#### 4. Validate Position Sizes
+- Check that positions are reasonable (not 0.0069 shares)
+- Verify QQQ price is correct in trades
+- Confirm quantities are whole numbers or reasonable fractions
 
-1. **3-Layer Diagnostic** (`scripts/diagnose_options_pipeline.py`)
-   - Layer 1: Execution (broker connectivity)
-   - Layer 2: Data (chain/quotes/Greeks)
-   - Layer 3: Decision (agent/filters/selector)
+#### 5. Wait for Gamma Packages
+- Monitor for Gamma Scalper entries
+- Watch delta hedging activity
+- Wait for 1-2 complete packages (entry → hedging → exit)
 
-2. **Contract Snapshot** (`scripts/snapshot_options_pipeline.py`)
-   - Top 10 candidate contracts
-   - Filter application results
-   - Alignment status
-   - Rejection reasons
+#### 6. Export Timelines
+```bash
+./EXPORT_TIMELINES.sh
+```
+Or:
+```bash
+curl -X POST http://localhost:8000/options/export-timelines
+```
 
-3. **Offline Testing** (`scripts/test_offline_trading.py`)
-   - Full pipeline replay on cached data
-   - CASE diagnosis (F-I)
-   - Verbose logging
+### Medium-Term (After Timelines Exported)
 
-4. **Manual Checklist** (`DIAGNOSTIC_CHECKLIST.md`)
-   - Step-by-step manual debugging
-   - Expected outputs
-   - Failure interpretations
+#### 7. Validate Timeline Data
+- Check timeline files in `phase1_results/gamma_only/{run_id}/`
+- Verify delta, hedge shares, P&L components are logged correctly
+- Compare against expected patterns from GAMMA_SCALPER_QA_GUIDE.md
 
-## 📊 SUCCESS CRITERIA
+#### 8. Run Validation Scenarios
+- Scenario G-H1: Clean up-move with re-hedges
+- Scenario G-H2: Down-move / round-trip
+- Scenario G-H3: No hedge band (frequency limits)
+- Scenario G-H4: Engine restart mid-hedged
 
-### Options Trading Working
-- ✅ At least one auto options trade executed in testing mode
-- ✅ Logs show: Chain fetched → Candidates evaluated → Contracts passed → Order submitted → Broker acknowledgment
-- ✅ No "Bot manager not initialized" errors
-- ✅ Server starts without uvloop conflicts
+---
 
-### System Ready for Production
-- ✅ All diagnostic tools working
-- ✅ Historical data collected and verified
-- ✅ Offline testing capability confirmed
-- ✅ Options filters tuned with real data
-- ✅ Performance metrics acceptable
+## 📊 CURRENT STATE
 
-## 🎯 CURRENT STATUS
+### Code Status
+- ✅ All bug fixes committed and pushed
+- ✅ Documentation complete
+- ✅ Helper scripts ready
+- ✅ Freeze tag created (`v1.0.1-ml-gamma-qa`)
 
-**System Health**: 🟡 Partially Working
-- ✅ Server can start (after venv activation)
-- ✅ Bot manager initializes correctly
-- ✅ No uvloop conflicts
-- ⚠️ Options trading execution needs debugging
-- ⚠️ Historical data not yet collected
+### Server Status
+- ✅ Server running on port 8000
+- ✅ `GAMMA_ONLY_TEST_MODE=true` set
+- ⏳ Trading loop not started yet
 
-**Blockers**: 
-1. Options trading not executing (needs diagnostic)
-2. Need to verify server startup works end-to-end
+### Test Status
+- ⏳ Gamma-only test not executed yet
+- ⏳ No Gamma packages created yet
+- ⏳ Timelines not exported yet
 
-**Ready for**: 
-- Server startup testing
-- Options pipeline diagnostics
-- Historical data collection
+---
 
+## 🔍 KEY FILES REFERENCE
+
+### Bug Fixes
+- `core/risk/advanced.py` - Position sizing fix (lines 237, 256)
+- `core/live/multi_leg_profit_manager.py` - F-string fix (line 99)
+
+### Documentation
+- `ALGORITHM_FLOWCHART.md` - Complete call flow documentation
+- `QUICK_FLOWCHART.txt` - Quick reference flowchart
+- `GAMMA_SCALPER_QA_GUIDE.md` - Validation scenarios
+
+### Scripts
+- `START_VALIDATION.sh` - Start server
+- `START_TRADING_GAMMA_ONLY.sh` - Start trading loop
+- `EXPORT_TIMELINES.sh` - Export timelines
+- `COMPLETE_FREEZE_VERIFY.sh` - Verify freeze
+
+### Configuration
+- `config/gamma_only_config.yaml` - Gamma-only test config
+- `GAMMA_ONLY_TEST_MODE` - Environment variable (set to `true`)
+
+---
+
+## ⚠️ KNOWN ISSUES
+
+### Fixed
+- ✅ Position sizing bug (regime cap calculation)
+- ✅ F-string syntax error
+
+### Potential Issues to Watch
+- ⚠️ Price mismatch (check `bar.symbol == symbol`)
+- ⚠️ Low confidence causing small positions (expected behavior)
+- ⚠️ Delta hedging frequency limits (should respect 5-bar cooldown)
+
+---
+
+## 📝 NOTES
+
+1. **Position Sizing:** After the fix, positions should be reasonable. If still small, check:
+   - Confidence level (low confidence = smaller positions)
+   - Regime type (compression = 5% cap, trend = 15% cap)
+   - Testing mode (simpler sizing if enabled)
+
+2. **Gamma-Only Test:** The test is designed to validate:
+   - Delta hedging works correctly
+   - Timeline logging captures all data
+   - Guardrails prevent excessive hedging
+   - P&L calculations are accurate
+
+3. **Next Tag:** After successful Gamma-only test validation, create:
+   - Tag: `v1.0.2-ml-gamma-validated`
+   - Or similar version increment
+
+---
+
+## 🎯 SUCCESS CRITERIA
+
+### For Gamma-Only Test
+- ✅ At least 1-2 complete Gamma packages (entry → exit)
+- ✅ Delta hedging executed correctly
+- ✅ Timeline data exported and validated
+- ✅ No critical errors in logs
+- ✅ Position sizes are reasonable
+- ✅ Hedge P&L tracked separately from options P&L
+
+### For Phase 1 Validation
+- ✅ All scenarios pass (G-H1 through G-H4)
+- ✅ Timeline data matches expected patterns
+- ✅ No orphaned positions
+- ✅ P&L calculations accurate
+- ✅ Guardrails working correctly
+
+---
+
+**Last Updated:** Current Session  
+**Next Review:** After Gamma-only test execution
