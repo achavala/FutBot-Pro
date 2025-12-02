@@ -1,0 +1,179 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    FUTBOT TRADING ALGORITHM - QUICK FLOWCHART
+═══════════════════════════════════════════════════════════════════════════════
+
+[USER ACTION]
+    │
+    ├─ Dashboard: Click "Start Live"
+    └─ API: POST /start-live
+            │
+            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ui/fastapi_app.py                                                          │
+│  start_live_trading()                                                       │
+│    ├─> Initialize broker_client                                             │
+│    ├─> Initialize data_feed                                                 │
+│    └─> Create LiveTradingConfig                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ui/bot_manager.py                                                           │
+│  BotManager.start_live_trading()                                            │
+│    ├─> Create LiveTradingLoop                                               │
+│    └─> Start background thread                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+            │
+            ▼
+┌═══════════════════════════════════════════════════════════════════════════┐
+│  core/live/scheduler.py                                                    │
+│  LiveTradingLoop.run()                                                     │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │ MAIN LOOP (runs continuously)                                        │ │
+│  │                                                                       │ │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │ │
+│  │  │ For each symbol (SPY, QQQ, etc.):                             │  │ │
+│  │  │                                                               │  │ │
+│  │  │  1. Get next bar                                               │  │ │
+│  │  │     └─> data_feed.get_next_bar(symbol)                        │  │ │
+│  │  │                                                               │  │ │
+│  │  │  2. Validate bar                                              │  │ │
+│  │  │     └─> Check: bar.symbol == symbol?                          │  │ │
+│  │  │         ⚠️ CRITICAL: Prevents wrong price                     │  │ │
+│  │  │                                                               │  │ │
+│  │  │  3. Update portfolio                                          │  │ │
+│  │  │     └─> portfolio.update_position(symbol, bar.close)          │  │ │
+│  │  │                                                               │  │ │
+│  │  │  4. Compute features & regime                                │  │ │
+│  │  │     ├─> feature_engine.compute_features(bars)                │  │ │
+│  │  │     └─> regime_engine.classify_regime(features)               │  │ │
+│  │  │         └─> Returns: RegimeSignal                             │  │ │
+│  │  │             ├─> regime_type: TREND/COMPRESSION/etc          │  │ │
+│  │  │             ├─> bias: BULLISH/BEARISH/NEUTRAL               │  │ │
+│  │  │             └─> confidence: 0.0-1.0                          │  │ │
+│  │  │                                                               │  │ │
+│  │  │  5. Check profit-taking (existing positions)                 │  │ │
+│  │  │     └─> profit_manager.should_take_profit()                  │  │ │
+│  │  │                                                               │  │ │
+│  │  │  6. Get trade decision                                       │  │ │
+│  │  │     └─> meta_policy.decide(signal, agents)                   │  │ │
+│  │  │         ├─> Each agent.decide() → TradeIntent               │  │ │
+│  │  │         └─> Combine → FinalTradeIntent                      │  │ │
+│  │  │                                                               │  │ │
+│  │  │  7. Check if options trade?                                  │  │ │
+│  │  │     └─> If YES → [OPTIONS PATH]                             │  │ │
+│  │  │     └─> If NO  → [STOCK PATH]                                │  │ │
+│  │  └───────────────────────────────────────────────────────────────┘  │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└═══════════════════════════════════════════════════════════════════════════┘
+            │
+            ├─────────────────────────────────────┐
+            │                                     │
+            ▼                                     ▼
+┌───────────────────────────┐      ┌──────────────────────────────────────┐
+│ OPTIONS PATH              │      │ STOCK PATH                           │
+│                           │      │                                      │
+│ executor_options.py       │      │ ⚠️ BUG FIXED HERE                    │
+│ execute_intent()          │      │                                      │
+│                           │      │ 1. Get base_investment ($1000)      │
+│ ├─> Multi-leg?           │      │    └─> asset_profile OR config       │
+│ │   └─> _execute_        │      │                                      │
+│ │       multi_leg_trade() │      │ 2. Calculate target_quantity         │
+│ │       ├─> Submit CALL  │      │    └─> $1000 / $670 = 1.49 shares   │
+│ │       └─> Submit PUT   │      │                                      │
+│ │                         │      │ 3. Calculate position_delta         │
+│ ├─> Track fills           │      │    └─> target - current            │
+│ │   └─> options_portfolio │      │                                      │
+│ │       .add_multi_leg_    │      │ 4. Apply risk management ⚠️         │
+│ │       position()        │      │    └─> advanced_risk.compute_       │
+│ │                         │      │        advanced_position_size()     │
+│ ├─> Delta hedging?        │      │        ├─> Check regime cap        │
+│ │   └─> delta_hedge_      │      │        │   └─> BEFORE: (cap/price) │
+│ │       manager.check()   │      │        │   └─> AFTER: cap ✅        │
+│ │                         │      │        ├─> Apply confidence         │
+│ └─> Multi-leg exits       │      │        └─> Convert to quantity      │
+│     └─> _check_multi_leg_  │      │                                      │
+│         exits()           │      │ 5. Cap position_delta               │
+│                           │      │    └─> If > max_quantity: cap it    │
+│                           │      │                                      │
+│                           │      │ 6. Execute trade                    │
+│                           │      │    └─> executor.apply_intent()      │
+│                           │      │        ├─> Calculate target_pos    │
+│                           │      │        ├─> Determine side (BUY/SELL)│
+│                           │      │        └─> broker_client.place_order│
+│                           │      │                                      │
+│                           │      │ 7. Update portfolio                 │
+│                           │      │    └─> portfolio.apply_position_  │
+│                           │      │        delta()                      │
+└───────────────────────────┘      └──────────────────────────────────────┘
+            │                                     │
+            └─────────────────────────────────────┘
+                            │
+                            ▼
+                    [Sleep until next bar]
+
+═══════════════════════════════════════════════════════════════════════════════
+                            KEY TROUBLESHOOTING POINTS
+═══════════════════════════════════════════════════════════════════════════════
+
+🔴 A. PRICE MISMATCH PREVENTION
+   Location: scheduler.py:_process_bar() ~line 596
+   Check: bar.symbol == symbol
+   Issue: Wrong price used for wrong symbol
+   Fix: Skip bar if mismatch
+
+🔴 B. POSITION SIZING ⚠️ RECENTLY FIXED
+   Location: risk/advanced.py:compute_advanced_position_size() ~line 237
+   Issue: Dividing by price when calculating caps (unit mismatch)
+   Fix: Removed division by price - caps now in dollars
+   Before: max_size = (capital * pct) / price ❌
+   After:  max_size = capital * pct ✅
+
+🔴 C. QUANTITY CALCULATION
+   Location: scheduler.py:_process_bar() ~line 1101
+   Check: target_quantity = base_investment / bar.close
+   Issue: Wrong price → wrong quantity
+   Fix: Use bar.close (not latest["close"])
+
+🔴 D. MULTI-LEG FILL TRACKING
+   Location: executor_options.py:_execute_multi_leg_trade() ~line 800
+   Issue: Legs filled separately, need to track both
+   Check: Both call_fill and put_fill exist
+
+🔴 E. DELTA HEDGING
+   Location: delta_hedge_manager.py:calculate_hedge_quantity() ~line 200
+   Issue: Net delta calculation, hedge sizing
+   Check: hedge_shares = -net_delta * 100 (correct units)
+
+═══════════════════════════════════════════════════════════════════════════════
+                            DEBUGGING CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+1. ✅ Bar Validation
+   - Is bar.symbol == symbol?
+   - Is bar.close correct price?
+
+2. ✅ Position Sizing
+   - What is base_investment? ($1000 default)
+   - What is bar.close? (should match symbol)
+   - What is adjusted_size after risk management?
+   - What is final quantity? (should be ~1-2 shares for $1000 at $670)
+
+3. ✅ Risk Management
+   - What is confidence? (0.0-1.0)
+   - What is regime_type? (affects caps)
+   - What is regime_cap_pct? (5% compression, 15% trend)
+   - Is max_size_by_regime in dollars? (should be, not shares)
+
+4. ✅ Execution
+   - Did order get submitted?
+   - Did fill occur?
+   - What is filled_quantity?
+
+5. ✅ Portfolio Update
+   - Did position update correctly?
+   - Is unrealized_pnl correct?
+
+═══════════════════════════════════════════════════════════════════════════════
+

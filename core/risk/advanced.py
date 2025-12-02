@@ -233,8 +233,9 @@ class AdvancedRiskManager:
             size *= 0.5  # Reduce by 50% under soft stop
 
         # Apply regime-aware cap
+        # CRITICAL FIX: regime_cap_pct is a percentage of capital, so max_size_by_regime should be in DOLLARS, not shares
         regime_cap_pct = self.regime_aware_position_cap(regime_type)
-        max_size_by_regime = (self.current_capital * regime_cap_pct) / price if price > 0 else 0.0
+        max_size_by_regime = self.current_capital * regime_cap_pct  # In dollars
         size = min(size, max_size_by_regime)
 
         # Apply volatility scaling
@@ -251,7 +252,8 @@ class AdvancedRiskManager:
                 size = (self.config.max_var_exposure * self.current_capital) / (price * 0.01) if price > 0 else 0.0
 
         # Apply symbol-level exposure cap
-        max_symbol_exposure = (self.current_capital * self.config.max_symbol_exposure_pct) / price if price > 0 else 0.0
+        # CRITICAL FIX: max_symbol_exposure_pct is a percentage of capital, so max_symbol_exposure should be in DOLLARS, not shares
+        max_symbol_exposure = self.current_capital * self.config.max_symbol_exposure_pct  # In dollars
         size = min(size, max_symbol_exposure)
 
         return size, ""

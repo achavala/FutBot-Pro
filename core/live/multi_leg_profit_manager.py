@@ -94,9 +94,10 @@ class MultiLegProfitManager:
             entry_iv=entry_iv or 0.0,
             entry_gex_strength=entry_gex_strength or 0.0,
         )
+        iv_str = f"{entry_iv:.1%}" if entry_iv else "N/A"
         logger.info(
             f"📊 [MultiLegProfit] Tracking {strategy} position: {multi_leg_id}, "
-            f"premium=${net_premium:.2f}, IV={entry_iv:.1%} if entry_iv else 'N/A'}"
+            f"premium=${net_premium:.2f}, IV={iv_str}"
         )
     
     def should_take_profit(
