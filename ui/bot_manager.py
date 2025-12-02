@@ -175,6 +175,14 @@ class BotManager:
         # Filter by date range
         if start_date:
             trades = [t for t in trades if t.entry_time >= start_date]
+        
+        if end_date:
+            trades = [t for t in trades if t.entry_time <= end_date]
+        
+        # Apply limit
+        trades = trades[-limit:] if len(trades) > limit else trades
+        
+        return trades
     
     def get_options_roundtrip_trades(
         self,

@@ -221,6 +221,28 @@ class MultiLegPosition:
             return self.total_credit
         else:
             return -self.total_debit  # Negative because it's a cost
+    
+    @property
+    def net_delta(self) -> float:
+        """
+        Calculate net delta of the multi-leg position.
+        
+        For long strangles (Gamma Scalper):
+        - Call delta is positive (e.g., +0.25)
+        - Put delta is negative (e.g., -0.25)
+        - Net delta = (call_delta * call_quantity) + (put_delta * put_quantity)
+        
+        For short straddles (Theta Harvester):
+        - Call delta is positive, but we're short (negative contribution)
+        - Put delta is negative, but we're short (positive contribution)
+        - Net delta = -(call_delta * call_quantity) - (put_delta * put_quantity)
+        """
+        if self.direction == "long":
+            # Long strangle: add deltas
+            return (self.call_delta * self.call_quantity) + (self.put_delta * self.put_quantity)
+        else:
+            # Short straddle: negate deltas
+            return -((self.call_delta * self.call_quantity) + (self.put_delta * self.put_quantity))
 
 
 @dataclass

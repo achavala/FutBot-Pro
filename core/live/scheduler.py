@@ -142,6 +142,18 @@ class LiveTradingLoop:
             options_data_feed=options_data_feed,
         )
         
+        # Delta hedge manager for Gamma Scalper (delta-neutral hedging)
+        from core.live.delta_hedge_manager import DeltaHedgeManager
+        from core.live.delta_hedge_logger import DeltaHedgeTimelineLogger
+        
+        # Timeline logger for validation
+        self.hedge_timeline_logger = DeltaHedgeTimelineLogger(enabled=True)
+        
+        self.delta_hedge_manager = DeltaHedgeManager(
+            broker_client=self.executor.broker_client if hasattr(self.executor, 'broker_client') else None,
+            timeline_logger=self.hedge_timeline_logger,
+        )
+        
         # Pass options_broker_client to agents that need it (for Alpaca detection)
         # This allows agents to detect Alpaca paper mode and adjust behavior
         # (e.g., ThetaHarvesterAgent disables real straddle selling in Alpaca paper)
@@ -1232,6 +1244,9 @@ class LiveTradingLoop:
         # Update options positions with current underlying price
         self.options_executor.update_positions(symbol, bar.close)
         
+        # Check and execute delta hedging for Gamma Scalper positions
+        self._check_delta_hedging(symbol, bar.close)
+        
         # Check multi-leg profit exits
         self._check_multi_leg_exits(symbol, bar.close, signal)
         
@@ -1367,6 +1382,114 @@ class LiveTradingLoop:
 
         return df
     
+    def _check_delta_hedging(
+        self,
+        symbol: str,
+        underlying_price: float,
+    ) -> None:
+        """
+        Check and execute delta hedging for Gamma Scalper positions.
+        
+        Only hedges long strangles (Gamma Scalper), not short straddles (Theta Harvester).
+        """
+        if not self.delta_hedge_manager:
+            return
+        
+        # Get all open multi-leg positions for this symbol
+        multi_leg_positions = self.options_portfolio.get_all_multi_leg_positions()
+        symbol_positions = [ml_pos for ml_pos in multi_leg_positions if ml_pos.symbol == symbol]
+        
+        for ml_pos in symbol_positions:
+            # Only hedge Gamma Scalper (long strangles)
+            if ml_pos.direction != "long" or ml_pos.trade_type != "strangle":
+                continue
+            
+            # Only hedge if both legs are filled
+            if not ml_pos.both_legs_filled:
+                continue
+            
+            # Calculate net delta
+            net_delta = ml_pos.net_delta
+            
+            # Check if should hedge
+            should_hedge, reason = self.delta_hedge_manager.should_hedge(
+                multi_leg_id=ml_pos.multi_leg_id,
+                net_delta=net_delta,
+                current_bar=self.bar_count,
+                current_price=underlying_price,
+            )
+            
+            if should_hedge:
+                logger.info(
+                    f"🔄 [DeltaHedge] {ml_pos.multi_leg_id}: {reason}, "
+                    f"net_delta={net_delta:.3f}"
+                )
+                
+                # Execute hedge
+                success, hedge_reason, shares_traded = self.delta_hedge_manager.execute_hedge(
+                    multi_leg_id=ml_pos.multi_leg_id,
+                    symbol=symbol,
+                    net_delta=net_delta,
+                    current_price=underlying_price,
+                    current_bar=self.bar_count,
+                )
+                
+                if success:
+                    logger.info(
+                        f"✅ [DeltaHedge] {ml_pos.multi_leg_id}: {hedge_reason}"
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ [DeltaHedge] {ml_pos.multi_leg_id}: Hedge failed: {hedge_reason}"
+                    )
+            
+            # Update hedge P&L
+            hedge_unrealized = self.delta_hedge_manager.update_hedge_pnl(
+                multi_leg_id=ml_pos.multi_leg_id,
+                current_price=underlying_price,
+            )
+            hedge_total = self.delta_hedge_manager.get_total_hedge_pnl(ml_pos.multi_leg_id)
+            
+            # Get hedge position for timeline logging
+            hedge_pos = self.delta_hedge_manager.get_hedge_position(ml_pos.multi_leg_id)
+            
+            # Log timeline entry
+            if self.hedge_timeline_logger:
+                self.hedge_timeline_logger.log_entry(
+                    multi_leg_id=ml_pos.multi_leg_id,
+                    bar=self.bar_count,
+                    price=underlying_price,
+                    net_options_delta=net_delta,
+                    hedge_shares=hedge_pos.hedge_shares if hedge_pos else 0.0,
+                    options_pnl=ml_pos.combined_unrealized_pnl,
+                    hedge_unrealized_pnl=hedge_unrealized,
+                    hedge_realized_pnl=hedge_pos.hedge_realized_pnl if hedge_pos else 0.0,
+                    notes="hedge_check" if not should_hedge else "hedge_executed",
+                )
+            
+            if abs(hedge_total) > 0.01:  # Log if significant
+                logger.debug(
+                    f"📊 [DeltaHedge] {ml_pos.multi_leg_id}: Hedge P&L=${hedge_total:.2f} "
+                    f"(realized=${hedge_pos.hedge_realized_pnl:.2f}, unrealized=${hedge_unrealized:.2f})"
+                )
+        
+        # Check for orphan hedges (hedge without options)
+        active_multi_leg_ids = {ml_pos.multi_leg_id for ml_pos in symbol_positions}
+        orphan_hedges = self.delta_hedge_manager.check_orphan_hedges(
+            current_bar=self.bar_count,
+            active_multi_leg_ids=active_multi_leg_ids,
+        )
+        
+        for multi_leg_id, reason in orphan_hedges:
+            logger.warning(
+                f"⚠️ [DeltaHedge] {multi_leg_id}: {reason} - forcing flatten"
+            )
+            self.delta_hedge_manager.remove_hedge_position(
+                multi_leg_id=multi_leg_id,
+                current_price=underlying_price,
+                symbol=symbol,
+            )
+    
     def _check_multi_leg_exits(
         self,
         symbol: str,
@@ -1382,8 +1505,25 @@ class LiveTradingLoop:
         symbol_positions = [ml_pos for ml_pos in multi_leg_positions if ml_pos.symbol == symbol]
         
         for ml_pos in symbol_positions:
-            # Calculate current P&L percentage
-            current_pnl_pct = (ml_pos.combined_unrealized_pnl / ml_pos.net_premium * 100.0) if ml_pos.net_premium > 0 else 0.0
+            # Calculate current P&L percentage (including hedge P&L for Gamma Scalper)
+            options_pnl = ml_pos.combined_unrealized_pnl
+            hedge_pnl = 0.0
+            
+            # Add hedge P&L for Gamma Scalper positions
+            if ml_pos.direction == "long" and ml_pos.trade_type == "strangle" and self.delta_hedge_manager:
+                # Update unrealized P&L
+                hedge_unrealized = self.delta_hedge_manager.update_hedge_pnl(
+                    multi_leg_id=ml_pos.multi_leg_id,
+                    current_price=underlying_price,
+                )
+                # Get total hedge P&L (realized + unrealized)
+                hedge_pnl = self.delta_hedge_manager.get_total_hedge_pnl(ml_pos.multi_leg_id)
+            
+            # Combined P&L (options + hedge)
+            combined_pnl = options_pnl + hedge_pnl
+            
+            # Calculate P&L percentage based on net premium
+            current_pnl_pct = (combined_pnl / ml_pos.net_premium * 100.0) if ml_pos.net_premium > 0 else 0.0
             
             # Check if should exit
             should_close, reason = self.multi_leg_profit_manager.should_take_profit(
@@ -1415,6 +1555,14 @@ class LiveTradingLoop:
                     
                     # Stop tracking
                     self.multi_leg_profit_manager.remove_position(ml_pos.multi_leg_id)
+                    
+                    # Remove hedge position (flatten if needed)
+                    if self.delta_hedge_manager:
+                        self.delta_hedge_manager.remove_hedge_position(
+                            multi_leg_id=ml_pos.multi_leg_id,
+                            current_price=underlying_price,
+                            symbol=symbol,
+                        )
                     
                     # Send notification if available
                     if self.notification_service:

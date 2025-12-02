@@ -373,6 +373,91 @@ python main.py --mode api --port 8000
 
 ---
 
+### **C. Gamma Scalper Delta Hedging Scenarios**
+
+#### **C1. Clean Up-Move with Re-Hedges (G-H1)**
+**Setup:**
+- Gamma Scalper buys long strangle (near ATM, delta ≈ 0)
+- Underlying grinds up steadily
+
+**Expected:**
+- [ ] Options delta becomes positive as price rises
+- [ ] Hedge trades execute: sell shares to neutralize delta
+- [ ] Total delta stays around 0 over the path
+- [ ] Number of hedge trades is reasonable (not firing every tick)
+- [ ] `current_hedge_shares` evolution makes sense (increasing short as price rises)
+- [ ] Total P&L = options gamma gains - hedge losses (net positive in good vol)
+
+**Verification:**
+- [ ] Net delta calculated correctly: `(call_delta * call_qty) + (put_delta * put_qty)`
+- [ ] Hedge quantity calculated correctly: `hedge_shares = -net_delta * 100`
+- [ ] Hedge adjusts from current position (not resetting)
+- [ ] Hedge P&L tracked separately (realized + unrealized)
+- [ ] Combined P&L = options_pnl + hedge_pnl
+
+**Log Pattern:**
+```
+[DeltaHedge] SPY_STRANGLE_long_680_665_20241126: Hedging SELL 25.00 shares @ $673.50 (net_delta=+0.25, current_hedge=0.00)
+[DeltaHedge] Updated hedge position: 0.00 → -25.00 shares @ avg $673.50
+[DeltaHedge] SPY_STRANGLE_long_680_665_20241126: Hedge P&L=$-12.50 (unrealized)
+```
+
+#### **C2. Down-Move / Round-Trip (G-H2)**
+**Setup:**
+- Gamma Scalper buys long strangle
+- Underlying moves up then back down over the same day
+
+**Expected:**
+- [ ] Delta neutralized on up-move (short shares)
+- [ ] Delta neutralized on down-move (long shares)
+- [ ] End roughly flat delta and flat hedge shares
+- [ ] Net total_pnl should be positive in decent vol path
+- [ ] No leftover hedge when options are closed
+- [ ] `hedge_realized_pnl + options_realized_pnl` matches total
+
+**Verification:**
+- [ ] Hedge position flattens correctly on exit
+- [ ] Final hedge P&L realized correctly
+- [ ] Combined P&L calculation accurate
+
+#### **C3. No Hedge Band / Frequency Limit (G-H3)**
+**Setup:**
+- Underlying shows oscillating moves around the strike
+- Delta crosses threshold and comes back quickly
+
+**Expected:**
+- [ ] Frequency limit (5 bars) is respected
+- [ ] No micro-hedges (< 5 shares)
+- [ ] Don't hammer broker with excessive trades
+- [ ] Delta threshold (0.10) prevents over-trading
+
+**Verification:**
+- [ ] Hedge count reasonable for period
+- [ ] Minimum hedge size enforced (5 shares)
+- [ ] Frequency limit prevents over-trading
+
+#### **C4. Engine Restart Mid-Hedged (G-H4)**
+**Setup:**
+- Open Gamma Scalper package
+- Nonzero hedge_shares on the symbol
+- Restart engine
+
+**Expected:**
+- [ ] On reload, engine reconstructs:
+  - Options position
+  - Hedge position (shares, avg_price)
+  - Correct net_delta and P&L
+- [ ] Next hedge action is small adjustment, not overshoot
+- [ ] Hedge P&L continues tracking correctly
+
+**Verification:**
+- [ ] State reloads correctly from database
+- [ ] Hedge position reconstructed
+- [ ] Average price maintained
+- [ ] Next hedge is adjustment, not reset
+
+---
+
 ## 🔍 **Edge Cases**
 
 ### **E1. Partial Fill on One Leg**

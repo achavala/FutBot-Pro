@@ -3,7 +3,9 @@
 
 set -e
 
-TAG_NAME="v1.0.0-ml-multi-leg"
+# Default tag name (can be overridden via command line)
+TAG_NAME="${1:-v1.0.1-ml-gamma-qa}"
+TAG_MESSAGE="${2:-Add production-safe gamma-only test infra}"
 
 echo "============================================================"
 echo "FREEZING CURRENT STATE FOR PHASE 1 VALIDATION"
@@ -29,10 +31,20 @@ if [ "$UNTRACKED" -gt 0 ]; then
     echo ""
 fi
 
+# Show tag info
+echo "Tag name: $TAG_NAME"
+echo "Tag message: $TAG_MESSAGE"
+echo ""
+
+# Show tag info
+echo "Tag name: $TAG_NAME"
+echo "Tag message: $TAG_MESSAGE"
+echo ""
+
 # Prompt for confirmation
 read -p "Continue and commit/tag as ${TAG_NAME}? (y/N) " ans
 if [[ "$ans" != "y" && "$ans" != "Y" ]]; then
-    echo "Aborting."
+    echo "❌ Aborting."
     exit 1
 fi
 
@@ -44,35 +56,10 @@ else
     git add -A
     
     echo "💾 Committing changes..."
-    git commit -m "feat: Multi-leg execution system ready for Phase 1 validation
-
-- Multi-leg execution (two orders per leg)
-- Fill tracking (independent per leg)
-- Combined P&L calculation
-- Credit/debit verification
-- Package-level closing
-- Auto-exit logic (TP/SL/IV/GEX/Regime)
-- UI integration (positions + history tables)
-- API endpoints (/options/positions, /trades/options/multi-leg)
-- Unit tests (all passing)
-- API tests (all working)
-- Documentation (validation checklist, exit criteria, roadmap)
-
-Ready for Phase 1: Simulation Validation"
+    git commit -m "$TAG_MESSAGE"
     
     echo "✅ Changes committed"
 fi
-
-# Create tag
-TAG_MESSAGE="Multi-leg engine ready for Phase 1 validation
-
-This tag marks the completion of the multi-leg options execution system:
-- Theta Harvester (straddle seller) ready
-- Gamma Scalper (strangle buyer) ready
-- All core functionality implemented and tested
-- Ready for Phase 1 simulation validation
-
-Next: Run Phase 1 validation checklist"
 
 echo ""
 echo "🏷️  Creating tag: $TAG_NAME"

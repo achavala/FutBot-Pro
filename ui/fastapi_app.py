@@ -190,9 +190,53 @@ def _initialize_bot_manager() -> BotManager:
             FVGAgent(symbol=symbol),
         ]
         
-        # Add options agent with real data feed if available
-        from core.agents.options_agent import OptionsAgent
-        from core.config.asset_profiles import OptionRiskProfile
+        # Check for Gamma-only test mode (via env var)
+        import os
+        USE_GAMMA_ONLY = os.getenv("GAMMA_ONLY_TEST_MODE", "false").lower() == "true"
+        
+        # Log mode on startup for audit trail
+        logger.info(f"🔬 GAMMA_ONLY_TEST_MODE={USE_GAMMA_ONLY} (env var: {os.getenv('GAMMA_ONLY_TEST_MODE', 'not set')})")
+        
+        if USE_GAMMA_ONLY:
+            # Gamma Scalper only (for focused delta hedging validation)
+            logger.info("🔬 GAMMA_ONLY_TEST_MODE enabled - creating Gamma Scalper only agents")
+            from scripts.create_gamma_only_agents import create_gamma_only_agents
+            
+            # Get options data feed and broker client
+            options_data_feed = None
+            options_broker_client = None
+            try:
+                import os
+                from services.options_data_feed import OptionsDataFeed
+                
+                alpaca_key = os.getenv("ALPACA_API_KEY")
+                alpaca_secret = os.getenv("ALPACA_API_SECRET")
+                polygon_key = os.getenv("POLYGON_API_KEY") or os.getenv("MASSIVE_API_KEY")
+                
+                if alpaca_key and alpaca_secret:
+                    options_data_feed = OptionsDataFeed(
+                        api_provider="alpaca",
+                        api_key=alpaca_key,
+                        api_secret=alpaca_secret,
+                    )
+                elif polygon_key:
+                    options_data_feed = OptionsDataFeed(
+                        api_provider="polygon",
+                        api_key=polygon_key,
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Could not initialize options data feed: {e}")
+            
+            agents = create_gamma_only_agents(
+                symbol=symbol,
+                options_data_feed=options_data_feed,
+                options_broker_client=options_broker_client,
+            )
+            logger.info(f"✅ Created {len(agents)} agents (Gamma Scalper only)")
+        else:
+            # Normal behavior: Options agent + Theta + Gamma (if configured)
+            from core.agents.options_agent import OptionsAgent
+            from core.config.asset_profiles import OptionRiskProfile
         
         # PERFORMANCE: Enable testing_mode for 0DTE trading and lower thresholds
         option_risk_profile = OptionRiskProfile(
@@ -621,6 +665,10 @@ async def get_roundtrip_trades(
         end_date=end_dt,
         limit=limit
     )
+    
+    # Handle None or empty trades
+    if trades is None:
+        trades = []
     
     # Format trades with additional calculated fields
     trade_dicts = []
@@ -2778,6 +2826,119 @@ async def get_options_positions():
             for p in broker_positions
         ]
     }
+
+
+@app.get("/options/hedge-timelines")
+async def get_hedge_timelines(summary_only: bool = True):
+    """
+    Get delta hedging timeline summaries for all Gamma Scalper positions.
+    
+    Args:
+        summary_only: If True, return summaries only (not full timeline tables)
+    """
+    try:
+        bot_manager = get_bot_manager()
+        
+        if not bot_manager.live_loop or not hasattr(bot_manager.live_loop, 'hedge_timeline_logger'):
+            return {
+                "status": "error",
+                "message": "Timeline logger not available",
+                "timelines": {},
+            }
+        
+        timeline_logger = bot_manager.live_loop.hedge_timeline_logger
+        
+        # Get all multi-leg positions
+        if not hasattr(bot_manager.live_loop, 'options_portfolio'):
+            return {
+                "status": "error",
+                "message": "Options portfolio not available",
+                "timelines": {},
+            }
+        
+        multi_leg_positions = bot_manager.live_loop.options_portfolio.get_all_multi_leg_positions()
+        
+        timelines = {}
+        for ml_pos in multi_leg_positions:
+            multi_leg_id = ml_pos.multi_leg_id
+            timeline_entries = timeline_logger.get_timeline(multi_leg_id)
+            
+            if timeline_entries:
+                # Get hedge position metrics
+                hedge_pos = None
+                if hasattr(bot_manager.live_loop, 'delta_hedge_manager'):
+                    hedge_pos = bot_manager.live_loop.delta_hedge_manager.get_hedge_position(multi_leg_id)
+                
+                # Build summary
+                summary = {
+                    "multi_leg_id": multi_leg_id,
+                    "symbol": ml_pos.symbol,
+                    "trade_type": ml_pos.trade_type,
+                    "direction": ml_pos.direction,
+                    "entry_bar": timeline_entries[0].bar if timeline_entries else None,
+                    "exit_bar": timeline_entries[-1].bar if timeline_entries else None,
+                    "total_entries": len(timeline_entries),
+                    "hedge_count": hedge_pos.hedge_count if hedge_pos else 0,
+                    "final_options_pnl": round(ml_pos.combined_unrealized_pnl, 2),
+                    "final_hedge_realized_pnl": round(hedge_pos.hedge_realized_pnl if hedge_pos else 0.0, 2),
+                    "final_hedge_unrealized_pnl": round(hedge_pos.hedge_unrealized_pnl if hedge_pos else 0.0, 2),
+                    "final_total_pnl": round(ml_pos.combined_unrealized_pnl + (hedge_pos.hedge_realized_pnl + hedge_pos.hedge_unrealized_pnl if hedge_pos else 0.0), 2),
+                    "hedge_shares": round(hedge_pos.hedge_shares if hedge_pos else 0.0, 2),
+                }
+                
+                # Include full timeline table only if summary_only=False
+                if not summary_only:
+                    timeline_table = timeline_logger.export_timeline_table(multi_leg_id)
+                    summary["timeline_table"] = timeline_table
+                
+                timelines[multi_leg_id] = summary
+        
+        return {
+            "status": "success",
+            "count": len(timelines),
+            "summary_only": summary_only,
+            "timelines": timelines,
+        }
+    except Exception as e:
+        logger.error(f"Error getting hedge timelines: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/options/export-timelines")
+async def export_hedge_timelines(request: Optional[dict] = None):
+    """Export all hedge timelines to files."""
+    try:
+        from pathlib import Path
+        from datetime import datetime
+        from scripts.export_hedge_timelines import export_timelines_from_live_loop
+        
+        bot_manager = get_bot_manager()
+        
+        if not bot_manager.live_loop:
+            raise HTTPException(status_code=400, detail="Live loop not running")
+        
+        # Generate run_id if not provided
+        run_id = None
+        if request and "run_id" in request:
+            run_id = request["run_id"]
+        else:
+            # Auto-generate run_id from current date/time and symbol
+            symbols = bot_manager.live_loop.config.symbols if hasattr(bot_manager.live_loop.config, 'symbols') else ["UNKNOWN"]
+            symbol = symbols[0] if symbols else "UNKNOWN"
+            run_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{symbol}"
+        
+        output_dir = Path("phase1_results/gamma_only")
+        exported_count = export_timelines_from_live_loop(bot_manager.live_loop, output_dir, run_id=run_id)
+        
+        return {
+            "status": "success",
+            "exported_count": exported_count,
+            "output_dir": str(output_dir / run_id) if run_id else str(output_dir),
+            "run_id": run_id,
+        }
+    except Exception as e:
+        logger.error(f"Error exporting timelines: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/options/close")

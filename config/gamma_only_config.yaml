@@ -1,0 +1,70 @@
+# Gamma Scalper Only Configuration
+# For focused delta hedging validation
+
+app:
+  name: "FutBot-GammaOnly"
+  version: "1.0.0"
+  mode: "sim"  # SIM/historical mode
+
+data:
+  cache_dir: "data/cache"
+  symbols: ["SPY"]  # Single symbol for focused test
+  timeframe: "1min"
+
+# Agents - Gamma Scalper ONLY
+agents:
+  # Base agents (needed for regime detection)
+  trend_agent:
+    enabled: true
+    min_confidence: 0.3  # Lower threshold for testing
+  mean_reversion_agent:
+    enabled: true
+    min_confidence: 0.3
+  volatility_agent:
+    enabled: true
+    min_confidence: 0.3
+  fvg_agent:
+    enabled: true
+    min_confidence: 0.3
+  
+  # Options agents
+  options_agent:
+    enabled: true
+    min_confidence: 0.3
+  
+  # Gamma Scalper - ENABLED
+  gamma_scalper:
+    enabled: true
+    min_confidence: 0.3
+  
+  # Theta Harvester - DISABLED for Gamma-only test
+  theta_harvester:
+    enabled: false
+  
+  # Directional Options Agent - DISABLED for Gamma-only test
+  directional_options:
+    enabled: false
+
+# Delta Hedging Configuration
+delta_hedging:
+  enabled: true
+  delta_threshold: 0.10
+  min_delta_change: 0.05
+  hedge_frequency_bars: 5
+  min_hedge_shares: 5
+  max_hedge_trades_per_day: 50
+  max_hedge_notional_per_day: 100000.0
+  max_orphan_hedge_bars: 60
+
+# Timeline Logging
+timeline_logging:
+  enabled: true
+  export_on_exit: true
+  export_dir: "phase1_results/gamma_only"
+
+# Test Period (adjust dates as needed)
+test_period:
+  start_date: "2024-12-01"  # Adjust to your test period
+  end_date: "2024-12-05"    # 3-5 trading days
+  symbol: "SPY"
+

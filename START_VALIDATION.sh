@@ -38,5 +38,22 @@ echo "============================================================"
 echo ""
 
 cd /Users/chavala/FutBot
+
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    echo "🔧 Activating virtual environment..."
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    echo "🔧 Activating virtual environment..."
+    source venv/bin/activate
+fi
+
+# Verify uvicorn is available
+if ! python3 -c "import uvicorn" 2>/dev/null; then
+    echo "❌ Error: uvicorn not found. Installing dependencies..."
+    pip install -q -r requirements.txt
+fi
+
+# Start server
 python3 main.py --mode api --port 8000
 
