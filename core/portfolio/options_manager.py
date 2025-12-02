@@ -101,12 +101,179 @@ class OptionTrade:
         return delta.total_seconds() / 60.0
 
 
+@dataclass
+class LegFill:
+    """Represents a fill for one leg of a multi-leg trade."""
+    
+    leg_type: str  # "call" or "put"
+    option_symbol: str  # Full option symbol
+    strike: float
+    quantity: int  # Number of contracts filled
+    fill_price: float  # Price per contract
+    fill_time: datetime
+    order_id: Optional[str] = None  # Broker order ID
+    status: str = "filled"  # "pending", "partially_filled", "filled", "rejected"
+    
+    @property
+    def total_cost(self) -> float:
+        """Calculate total cost for this leg (quantity * price * 100)."""
+        return self.quantity * self.fill_price * 100.0
+
+
+@dataclass
+class MultiLegPosition:
+    """Represents a multi-leg options position (straddle or strangle)."""
+    
+    symbol: str  # Underlying symbol
+    trade_type: str  # "straddle" or "strangle"
+    direction: str  # "long" or "short"
+    multi_leg_id: str  # Unique identifier for this multi-leg position
+    
+    # Leg 1 (Call)
+    call_option_symbol: str
+    call_strike: float
+    call_quantity: int  # Number of contracts
+    call_entry_price: float
+    call_current_price: float
+    call_delta: float
+    call_theta: float
+    call_iv: float
+    
+    # Leg 2 (Put)
+    put_option_symbol: str
+    put_strike: float
+    put_quantity: int
+    put_entry_price: float
+    put_current_price: float
+    put_delta: float
+    put_theta: float
+    put_iv: float
+    
+    expiration: datetime
+    entry_time: datetime
+    underlying_price: float
+    
+    # Fill tracking
+    call_fill: Optional[LegFill] = None
+    put_fill: Optional[LegFill] = None
+    both_legs_filled: bool = False
+    
+    # Combined metrics
+    total_credit: float = 0.0  # Net credit received (for short positions)
+    total_debit: float = 0.0  # Net debit paid (for long positions)
+    combined_unrealized_pnl: float = 0.0
+    regime_at_entry: Optional[str] = None
+    vol_bucket_at_entry: Optional[str] = None
+    
+    def update_prices(
+        self,
+        underlying_price: float,
+        call_price: float,
+        put_price: float,
+        call_delta: float,
+        put_delta: float,
+        call_theta: float,
+        put_theta: float,
+        call_iv: float,
+        put_iv: float,
+    ) -> None:
+        """Update position with current prices and Greeks."""
+        self.underlying_price = underlying_price
+        self.call_current_price = call_price
+        self.put_current_price = put_price
+        self.call_delta = call_delta
+        self.put_delta = put_delta
+        self.call_theta = call_theta
+        self.put_theta = put_theta
+        self.call_iv = call_iv
+        self.put_iv = put_iv
+        
+        # Calculate combined unrealized P&L
+        contract_multiplier = 100.0
+        
+        # Call leg P&L
+        if self.direction == "long":
+            call_pnl = (call_price - self.call_entry_price) * self.call_quantity * contract_multiplier
+            put_pnl = (put_price - self.put_entry_price) * self.put_quantity * contract_multiplier
+        else:  # short
+            call_pnl = (self.call_entry_price - call_price) * self.call_quantity * contract_multiplier
+            put_pnl = (self.put_entry_price - put_price) * self.put_quantity * contract_multiplier
+        
+        self.combined_unrealized_pnl = call_pnl + put_pnl
+    
+    @property
+    def days_to_expiry(self) -> float:
+        """Calculate days to expiration."""
+        if self.expiration <= datetime.now():
+            return 0.0
+        delta = self.expiration - datetime.now()
+        return delta.total_seconds() / (24 * 3600)
+    
+    @property
+    def is_expired(self) -> bool:
+        """Check if position has expired."""
+        return datetime.now() >= self.expiration
+    
+    @property
+    def net_premium(self) -> float:
+        """Get net premium (credit for short, debit for long)."""
+        if self.direction == "short":
+            return self.total_credit
+        else:
+            return -self.total_debit  # Negative because it's a cost
+
+
+@dataclass
+class MultiLegTrade:
+    """Represents a completed multi-leg options trade."""
+    
+    symbol: str
+    trade_type: str  # "straddle" or "strangle"
+    direction: str  # "long" or "short"
+    multi_leg_id: str
+    
+    # Entry
+    call_option_symbol: str
+    call_strike: float
+    put_option_symbol: str
+    put_strike: float
+    call_quantity: int
+    put_quantity: int
+    call_entry_price: float
+    put_entry_price: float
+    expiration: datetime
+    entry_time: datetime
+    
+    # Exit
+    call_exit_price: float
+    put_exit_price: float
+    exit_time: datetime
+    
+    # Combined P&L
+    combined_pnl: float  # Total P&L across both legs
+    combined_pnl_pct: float  # P&L as percentage of net premium
+    net_premium: float  # Net credit/debit at entry
+    
+    reason: str
+    agent: str
+    regime_at_entry: Optional[str] = None
+    vol_bucket_at_entry: Optional[str] = None
+    
+    @property
+    def duration_minutes(self) -> float:
+        """Calculate trade duration in minutes."""
+        delta = self.exit_time - self.entry_time
+        return delta.total_seconds() / 60.0
+
+
 class OptionsPortfolioManager:
     """Manages synthetic options positions separately from stock positions."""
 
     def __init__(self):
         self.positions: Dict[str, OptionPosition] = {}  # key: option_symbol
+        self.multi_leg_positions: Dict[str, MultiLegPosition] = {}  # key: multi_leg_id
         self.trades: List[OptionTrade] = []
+        self.multi_leg_trades: List[MultiLegTrade] = []
 
     def add_position(
         self,
@@ -261,6 +428,194 @@ class OptionsPortfolioManager:
             if pos.symbol in underlying_prices:
                 # Position P&L is already calculated in update_price
                 total_pnl += pos.unrealized_pnl
+        
+        # Add multi-leg positions P&L
+        for ml_pos in self.multi_leg_positions.values():
+            if ml_pos.symbol in underlying_prices:
+                total_pnl += ml_pos.combined_unrealized_pnl
+        
         return total_pnl
+    
+    def add_multi_leg_position(
+        self,
+        symbol: str,
+        trade_type: str,  # "straddle" or "strangle"
+        direction: str,  # "long" or "short"
+        multi_leg_id: str,
+        call_option_symbol: str,
+        call_strike: float,
+        call_quantity: int,
+        call_entry_price: float,
+        call_delta: float,
+        call_theta: float,
+        call_iv: float,
+        put_option_symbol: str,
+        put_strike: float,
+        put_quantity: int,
+        put_entry_price: float,
+        put_delta: float,
+        put_theta: float,
+        put_iv: float,
+        expiration: datetime,
+        entry_time: datetime,
+        underlying_price: float,
+        call_fill: Optional[LegFill] = None,
+        put_fill: Optional[LegFill] = None,
+        regime_at_entry: Optional[str] = None,
+        vol_bucket_at_entry: Optional[str] = None,
+    ) -> MultiLegPosition:
+        """Add a multi-leg position (straddle or strangle)."""
+        contract_multiplier = 100.0
+        
+        # Calculate net premium (credit for short, debit for long)
+        call_cost = call_entry_price * call_quantity * contract_multiplier
+        put_cost = put_entry_price * put_quantity * contract_multiplier
+        
+        if direction == "short":
+            # Selling premium = receiving credit
+            total_credit = call_cost + put_cost
+            total_debit = 0.0
+        else:
+            # Buying premium = paying debit
+            total_debit = call_cost + put_cost
+            total_credit = 0.0
+        
+        ml_pos = MultiLegPosition(
+            symbol=symbol,
+            trade_type=trade_type,
+            direction=direction,
+            multi_leg_id=multi_leg_id,
+            call_option_symbol=call_option_symbol,
+            call_strike=call_strike,
+            call_quantity=call_quantity,
+            call_entry_price=call_entry_price,
+            call_current_price=call_entry_price,
+            call_delta=call_delta,
+            call_theta=call_theta,
+            call_iv=call_iv,
+            put_option_symbol=put_option_symbol,
+            put_strike=put_strike,
+            put_quantity=put_quantity,
+            put_entry_price=put_entry_price,
+            put_current_price=put_entry_price,
+            put_delta=put_delta,
+            put_theta=put_theta,
+            put_iv=put_iv,
+            expiration=expiration,
+            entry_time=entry_time,
+            underlying_price=underlying_price,
+            call_fill=call_fill,
+            put_fill=put_fill,
+            both_legs_filled=(call_fill is not None and put_fill is not None),
+            total_credit=total_credit,
+            total_debit=total_debit,
+            regime_at_entry=regime_at_entry,
+            vol_bucket_at_entry=vol_bucket_at_entry,
+        )
+        
+        self.multi_leg_positions[multi_leg_id] = ml_pos
+        return ml_pos
+    
+    def update_multi_leg_fill(
+        self,
+        multi_leg_id: str,
+        leg_type: str,  # "call" or "put"
+        fill: LegFill,
+    ) -> Optional[MultiLegPosition]:
+        """Update a multi-leg position with a leg fill."""
+        if multi_leg_id not in self.multi_leg_positions:
+            return None
+        
+        ml_pos = self.multi_leg_positions[multi_leg_id]
+        
+        if leg_type == "call":
+            ml_pos.call_fill = fill
+        elif leg_type == "put":
+            ml_pos.put_fill = fill
+        
+        # Check if both legs are filled
+        ml_pos.both_legs_filled = (
+            ml_pos.call_fill is not None 
+            and ml_pos.put_fill is not None
+            and ml_pos.call_fill.status == "filled"
+            and ml_pos.put_fill.status == "filled"
+        )
+        
+        return ml_pos
+    
+    def close_multi_leg_position(
+        self,
+        multi_leg_id: str,
+        call_exit_price: float,
+        put_exit_price: float,
+        exit_time: datetime,
+        underlying_price: float,
+        reason: str,
+        agent: str = "system",
+    ) -> Optional[MultiLegTrade]:
+        """Close a multi-leg position."""
+        if multi_leg_id not in self.multi_leg_positions:
+            return None
+        
+        ml_pos = self.multi_leg_positions[multi_leg_id]
+        
+        # Calculate combined P&L
+        contract_multiplier = 100.0
+        
+        if ml_pos.direction == "long":
+            # Long: profit if exit > entry
+            call_pnl = (call_exit_price - ml_pos.call_entry_price) * ml_pos.call_quantity * contract_multiplier
+            put_pnl = (put_exit_price - ml_pos.put_entry_price) * ml_pos.put_quantity * contract_multiplier
+        else:
+            # Short: profit if entry > exit
+            call_pnl = (ml_pos.call_entry_price - call_exit_price) * ml_pos.call_quantity * contract_multiplier
+            put_pnl = (ml_pos.put_entry_price - put_exit_price) * ml_pos.put_quantity * contract_multiplier
+        
+        combined_pnl = call_pnl + put_pnl
+        
+        # Calculate P&L as percentage of net premium
+        net_premium = ml_pos.net_premium
+        combined_pnl_pct = (combined_pnl / net_premium * 100.0) if net_premium > 0 else 0.0
+        
+        # Create trade record
+        trade = MultiLegTrade(
+            symbol=ml_pos.symbol,
+            trade_type=ml_pos.trade_type,
+            direction=ml_pos.direction,
+            multi_leg_id=multi_leg_id,
+            call_option_symbol=ml_pos.call_option_symbol,
+            call_strike=ml_pos.call_strike,
+            put_option_symbol=ml_pos.put_option_symbol,
+            put_strike=ml_pos.put_strike,
+            call_quantity=ml_pos.call_quantity,
+            put_quantity=ml_pos.put_quantity,
+            call_entry_price=ml_pos.call_entry_price,
+            put_entry_price=ml_pos.put_entry_price,
+            call_exit_price=call_exit_price,
+            put_exit_price=put_exit_price,
+            expiration=ml_pos.expiration,
+            entry_time=ml_pos.entry_time,
+            exit_time=exit_time,
+            combined_pnl=combined_pnl,
+            combined_pnl_pct=combined_pnl_pct,
+            net_premium=net_premium,
+            reason=reason,
+            agent=agent,
+            regime_at_entry=ml_pos.regime_at_entry,
+            vol_bucket_at_entry=ml_pos.vol_bucket_at_entry,
+        )
+        
+        self.multi_leg_trades.append(trade)
+        del self.multi_leg_positions[multi_leg_id]
+        
+        return trade
+    
+    def get_multi_leg_position(self, multi_leg_id: str) -> Optional[MultiLegPosition]:
+        """Get a multi-leg position by ID."""
+        return self.multi_leg_positions.get(multi_leg_id)
+    
+    def get_all_multi_leg_positions(self) -> List[MultiLegPosition]:
+        """Get all open multi-leg positions."""
+        return list(self.multi_leg_positions.values())
 
 

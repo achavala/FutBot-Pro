@@ -414,6 +414,195 @@ class SyntheticOptionsExecutor:
             reason=reason,
             agent="system",
         )
+    
+    def close_multi_leg_position(
+        self,
+        multi_leg_id: str,
+        underlying_price: float,
+        reason: str = "Manual close",
+        agent: str = "system",
+    ) -> Optional["MultiLegTrade"]:
+        """
+        Close a multi-leg position (straddle or strangle) as a package.
+        
+        This closes both legs simultaneously and creates a combined trade record.
+        """
+        from core.portfolio.options_manager import MultiLegTrade, LegFill
+        from core.live.types import OrderSide, OrderType
+        
+        ml_pos = self.options_portfolio.get_multi_leg_position(multi_leg_id)
+        if not ml_pos:
+            logger.warning(f"⚠️ [MultiLeg] Position {multi_leg_id} not found")
+            return None
+        
+        if not ml_pos.both_legs_filled:
+            logger.warning(f"⚠️ [MultiLeg] Cannot close {multi_leg_id} - legs not fully filled")
+            return None
+        
+        # Get current prices for both legs
+        call_exit_price = None
+        put_exit_price = None
+        
+        if self.options_data_feed:
+            call_quote = self.options_data_feed.get_option_quote(ml_pos.call_option_symbol)
+            put_quote = self.options_data_feed.get_option_quote(ml_pos.put_option_symbol)
+            
+            if call_quote and put_quote:
+                # For closing: opposite side of entry
+                # If we sold (short), we buy back (use ask)
+                # If we bought (long), we sell (use bid)
+                if ml_pos.direction == "short":
+                    call_exit_price = float(call_quote.get("ask", 0))
+                    put_exit_price = float(put_quote.get("ask", 0))
+                else:
+                    call_exit_price = float(call_quote.get("bid", 0))
+                    put_exit_price = float(put_quote.get("bid", 0))
+        
+        # Fallback to synthetic pricing if no real data
+        if call_exit_price is None or call_exit_price <= 0:
+            time_to_expiry = ml_pos.days_to_expiry / 365.0
+            call_exit_price = self.pricer.calculate_option_price(
+                underlying_price=underlying_price,
+                strike=ml_pos.call_strike,
+                time_to_expiry=time_to_expiry,
+                iv=ml_pos.call_iv,
+                option_type="call",
+                risk_free_rate=self.default_risk_free_rate,
+            )
+        
+        if put_exit_price is None or put_exit_price <= 0:
+            time_to_expiry = ml_pos.days_to_expiry / 365.0
+            put_exit_price = self.pricer.calculate_option_price(
+                underlying_price=underlying_price,
+                strike=ml_pos.put_strike,
+                time_to_expiry=time_to_expiry,
+                iv=ml_pos.put_iv,
+                option_type="put",
+                risk_free_rate=self.default_risk_free_rate,
+            )
+        
+        logger.info(
+            f"🔵 [MultiLeg] Closing {ml_pos.trade_type.upper()} {multi_leg_id}:\n"
+            f"   CALL: {ml_pos.call_quantity}x @ ${call_exit_price:.2f}\n"
+            f"   PUT: {ml_pos.put_quantity}x @ ${put_exit_price:.2f}\n"
+            f"   Reason: {reason}"
+        )
+        
+        # ============================================================
+        # SUBMIT CLOSING ORDERS FOR BOTH LEGS
+        # ============================================================
+        call_exit_fill = None
+        put_exit_fill = None
+        
+        # Determine closing side (opposite of entry)
+        closing_side = OrderSide.BUY if ml_pos.direction == "short" else OrderSide.SELL
+        
+        if self.options_broker_client:
+            try:
+                # Submit call closing order
+                logger.info(
+                    f"📤 [MultiLeg] Submitting CALL closing order: "
+                    f"{closing_side.value} {ml_pos.call_quantity} contracts of {ml_pos.call_option_symbol}"
+                )
+                call_exit_order = self.options_broker_client.submit_options_order(
+                    option_symbol=ml_pos.call_option_symbol,
+                    side=closing_side,
+                    quantity=ml_pos.call_quantity,
+                    order_type=OrderType.LIMIT,
+                    limit_price=call_exit_price,
+                )
+                
+                # Submit put closing order
+                logger.info(
+                    f"📤 [MultiLeg] Submitting PUT closing order: "
+                    f"{closing_side.value} {ml_pos.put_quantity} contracts of {ml_pos.put_option_symbol}"
+                )
+                put_exit_order = self.options_broker_client.submit_options_order(
+                    option_symbol=ml_pos.put_option_symbol,
+                    side=closing_side,
+                    quantity=ml_pos.put_quantity,
+                    order_type=OrderType.LIMIT,
+                    limit_price=put_exit_price,
+                )
+                
+                # Track exit fills
+                call_exit_fill = LegFill(
+                    leg_type="call",
+                    option_symbol=ml_pos.call_option_symbol,
+                    strike=ml_pos.call_strike,
+                    quantity=call_exit_order.filled_quantity if call_exit_order.filled_quantity > 0 else ml_pos.call_quantity,
+                    fill_price=call_exit_order.filled_price if call_exit_order.filled_price > 0 else call_exit_price,
+                    fill_time=datetime.now(),
+                    order_id=call_exit_order.order_id,
+                    status=call_exit_order.status.value if hasattr(call_exit_order.status, 'value') else str(call_exit_order.status),
+                )
+                
+                put_exit_fill = LegFill(
+                    leg_type="put",
+                    option_symbol=ml_pos.put_option_symbol,
+                    strike=ml_pos.put_strike,
+                    quantity=put_exit_order.filled_quantity if put_exit_order.filled_quantity > 0 else ml_pos.put_quantity,
+                    fill_price=put_exit_order.filled_price if put_exit_order.filled_price > 0 else put_exit_price,
+                    fill_time=datetime.now(),
+                    order_id=put_exit_order.order_id,
+                    status=put_exit_order.status.value if hasattr(put_exit_order.status, 'value') else str(put_exit_order.status),
+                )
+                
+                logger.info(
+                    f"✅ [MultiLeg] CALL exit fill: {call_exit_fill.quantity} @ ${call_exit_fill.fill_price:.2f} "
+                    f"(status: {call_exit_fill.status})"
+                )
+                logger.info(
+                    f"✅ [MultiLeg] PUT exit fill: {put_exit_fill.quantity} @ ${put_exit_fill.fill_price:.2f} "
+                    f"(status: {put_exit_fill.status})"
+                )
+                
+            except Exception as e:
+                logger.error(f"❌ [MultiLeg] Failed to submit closing orders: {e}", exc_info=True)
+                # Fall through to synthetic execution
+        
+        # If no real fills, use synthetic
+        if call_exit_fill is None or put_exit_fill is None:
+            call_exit_fill = LegFill(
+                leg_type="call",
+                option_symbol=ml_pos.call_option_symbol,
+                strike=ml_pos.call_strike,
+                quantity=ml_pos.call_quantity,
+                fill_price=call_exit_price,
+                fill_time=datetime.now(),
+                status="filled",
+            )
+            
+            put_exit_fill = LegFill(
+                leg_type="put",
+                option_symbol=ml_pos.put_option_symbol,
+                strike=ml_pos.put_strike,
+                quantity=ml_pos.put_quantity,
+                fill_price=put_exit_price,
+                fill_time=datetime.now(),
+                status="filled",
+            )
+        
+        # Close the multi-leg position
+        trade = self.options_portfolio.close_multi_leg_position(
+            multi_leg_id=multi_leg_id,
+            call_exit_price=call_exit_fill.fill_price,
+            put_exit_price=put_exit_fill.fill_price,
+            exit_time=datetime.now(),
+            underlying_price=underlying_price,
+            reason=reason,
+            agent=agent,
+        )
+        
+        if trade:
+            logger.info(
+                f"✅ [MultiLeg] {ml_pos.trade_type.upper()} closed:\n"
+                f"   Combined P&L: ${trade.combined_pnl:.2f} ({trade.combined_pnl_pct:.1f}%)\n"
+                f"   Net Premium: ${trade.net_premium:.2f}\n"
+                f"   Duration: {trade.duration_minutes:.1f} minutes"
+            )
+        
+        return trade
 
     def _execute_multi_leg_trade(
         self,
@@ -426,75 +615,327 @@ class SyntheticOptionsExecutor:
         """
         Execute multi-leg options trades (straddles and strangles).
         
+        Features:
+        - Two orders per leg (call + put)
+        - Fill tracking for each leg
+        - Combined P&L calculation
+        - Credit/debit verification
+        
         For STRADDLE: Sell/buy ATM call + ATM put at same strike
         For STRANGLE: Buy/sell OTM call + OTM put at different strikes
         """
+        from core.portfolio.options_manager import LegFill, MultiLegPosition
+        from core.live.types import OrderSide, OrderType
+        
         metadata = intent.metadata or {}
         trade_type = intent.option_type  # "straddle" or "strangle"
-        direction = getattr(intent, 'direction', 'long')  # "long" or "short" (default to long)
+        
+        # Determine direction from intent
+        # Theta Harvester sells (SHORT), Gamma Scalper buys (LONG)
+        direction = "short" if intent.position_delta < 0 else "long"
         size = int(abs(intent.position_delta))  # Number of contracts
         
-        if trade_type == "straddle":
-            strike = float(metadata.get("strike", underlying_price))
-            call_symbol = metadata.get("call_symbol", "")
-            put_symbol = metadata.get("put_symbol", "")
-            expiration_str = metadata.get("expiration", "")
-            
-            logger.info(
-                f"[EXECUTOR] {direction.upper()} STRADDLE {size}x @ ${strike:.2f}: "
-                f"CALL {call_symbol} + PUT {put_symbol}"
-            )
-            
-            # Execute both legs
-            # For now, we'll create synthetic positions for both legs
-            # In production, this would execute two separate orders
-            
-            # TODO: Implement actual straddle execution
-            # This is a stub that logs the trade
-            logger.info(
-                f"[EXECUTOR] Straddle execution stub: {direction} {size} contracts "
-                f"at strike ${strike:.2f}, expiration {expiration_str}"
-            )
-            
+        # Get option symbols and strikes from metadata
+        call_symbol = metadata.get("call_symbol", "")
+        put_symbol = metadata.get("put_symbol", "")
+        expiration_str = metadata.get("expiration", "")
+        
+        if not call_symbol or not put_symbol:
             return OptionsExecutionResult(
-                success=True,
-                reason=f"Straddle {direction} {size}x @ ${strike:.2f} (execution stub)",
-                option_symbol=f"{symbol}_STRADDLE_{int(strike)}_{expiration_str}",
+                success=False,
+                reason=f"Missing option symbols for {trade_type}: call={call_symbol}, put={put_symbol}",
             )
         
+        # Parse expiration
+        try:
+            if expiration_str:
+                # Try parsing expiration string (format may vary)
+                if "T" in expiration_str:
+                    expiration = datetime.fromisoformat(expiration_str.replace("Z", "+00:00"))
+                else:
+                    # Assume YYYY-MM-DD format
+                    expiration = datetime.strptime(expiration_str, "%Y-%m-%d")
+            else:
+                # Default to 0DTE if not specified
+                expiration = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0)
+        except Exception as e:
+            logger.warning(f"Could not parse expiration {expiration_str}, using default: {e}")
+            expiration = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0)
+        
+        # Get strikes
+        if trade_type == "straddle":
+            strike = float(metadata.get("strike", underlying_price))
+            call_strike = strike
+            put_strike = strike
         elif trade_type == "strangle":
             call_strike = float(metadata.get("call_strike", underlying_price * 1.05))
             put_strike = float(metadata.get("put_strike", underlying_price * 0.95))
-            call_symbol = metadata.get("call_symbol", "")
-            put_symbol = metadata.get("put_symbol", "")
-            expiration_str = metadata.get("expiration", "")
-            
-            logger.info(
-                f"[EXECUTOR] {direction.upper()} STRANGLE {size}x: "
-                f"CALL ${call_strike:.2f} ({call_symbol}) + PUT ${put_strike:.2f} ({put_symbol})"
-            )
-            
-            # Execute both legs
-            # TODO: Implement actual strangle execution
-            logger.info(
-                f"[EXECUTOR] Strangle execution stub: {direction} {size} contracts "
-                f"CALL @ ${call_strike:.2f} / PUT @ ${put_strike:.2f}, expiration {expiration_str}"
-            )
-            
-            return OptionsExecutionResult(
-                success=True,
-                reason=(
-                    f"Strangle {direction} {size}x: "
-                    f"CALL ${call_strike:.2f} / PUT ${put_strike:.2f} (execution stub)"
-                ),
-                option_symbol=f"{symbol}_STRANGLE_{int(call_strike)}_{int(put_strike)}_{expiration_str}",
-            )
-        
         else:
             return OptionsExecutionResult(
                 success=False,
                 reason=f"Unknown multi-leg trade type: {trade_type}",
             )
+        
+        # Get quotes for pricing
+        call_quote = None
+        put_quote = None
+        call_greeks = None
+        put_greeks = None
+        
+        if self.options_data_feed:
+            call_quote = self.options_data_feed.get_option_quote(call_symbol)
+            put_quote = self.options_data_feed.get_option_quote(put_symbol)
+            call_greeks = self.options_data_feed.get_option_greeks(call_symbol)
+            put_greeks = self.options_data_feed.get_option_greeks(put_symbol)
+        
+        # Determine entry prices
+        # For SHORT: use bid (selling premium)
+        # For LONG: use ask (buying premium)
+        if direction == "short":
+            call_entry_price = float(call_quote.get("bid", 0)) if call_quote else 0.0
+            put_entry_price = float(put_quote.get("bid", 0)) if put_quote else 0.0
+        else:
+            call_entry_price = float(call_quote.get("ask", 0)) if call_quote else 0.0
+            put_entry_price = float(put_quote.get("ask", 0)) if put_quote else 0.0
+        
+        if call_entry_price <= 0 or put_entry_price <= 0:
+            logger.warning(f"⚠️ [MultiLeg] Invalid prices: call=${call_entry_price:.2f}, put=${put_entry_price:.2f}")
+            # Fallback to synthetic pricing
+            call_entry_price = self.pricer.calculate_option_price(
+                underlying_price=underlying_price,
+                strike=call_strike,
+                time_to_expiry=(expiration - datetime.now()).total_seconds() / (365 * 24 * 3600),
+                iv=self.default_iv,
+                option_type="call",
+                risk_free_rate=self.default_risk_free_rate,
+            )
+            put_entry_price = self.pricer.calculate_option_price(
+                underlying_price=underlying_price,
+                strike=put_strike,
+                time_to_expiry=(expiration - datetime.now()).total_seconds() / (365 * 24 * 3600),
+                iv=self.default_iv,
+                option_type="put",
+                risk_free_rate=self.default_risk_free_rate,
+            )
+        
+        # Get Greeks
+        call_delta = float(call_greeks.get("delta", 0.0)) if call_greeks else 0.0
+        call_theta = float(call_greeks.get("theta", 0.0)) if call_greeks else 0.0
+        call_iv = float(call_greeks.get("implied_volatility", self.default_iv)) if call_greeks else self.default_iv
+        
+        put_delta = float(put_greeks.get("delta", 0.0)) if put_greeks else 0.0
+        put_theta = float(put_greeks.get("theta", 0.0)) if put_greeks else 0.0
+        put_iv = float(put_greeks.get("implied_volatility", self.default_iv)) if put_greeks else self.default_iv
+        
+        # Calculate expected net premium
+        contract_multiplier = 100.0
+        call_cost = call_entry_price * size * contract_multiplier
+        put_cost = put_entry_price * size * contract_multiplier
+        
+        if direction == "short":
+            expected_credit = call_cost + put_cost
+            expected_debit = 0.0
+        else:
+            expected_debit = call_cost + put_cost
+            expected_credit = 0.0
+        
+        # Verify against metadata if available
+        if "total_credit" in metadata:
+            expected_credit_from_metadata = float(metadata["total_credit"]) * size * contract_multiplier
+            if abs(expected_credit - expected_credit_from_metadata) > expected_credit * 0.1:  # 10% tolerance
+                logger.warning(
+                    f"⚠️ [MultiLeg] Credit mismatch: calculated=${expected_credit:.2f}, "
+                    f"expected=${expected_credit_from_metadata:.2f}"
+                )
+        
+        if "total_debit" in metadata:
+            expected_debit_from_metadata = float(metadata["total_debit"]) * size * contract_multiplier
+            if abs(expected_debit - expected_debit_from_metadata) > expected_debit * 0.1:  # 10% tolerance
+                logger.warning(
+                    f"⚠️ [MultiLeg] Debit mismatch: calculated=${expected_debit:.2f}, "
+                    f"expected=${expected_debit_from_metadata:.2f}"
+                )
+        
+        # Generate unique multi-leg ID
+        multi_leg_id = f"{symbol}_{trade_type.upper()}_{direction}_{int(call_strike)}_{int(put_strike)}_{expiration.strftime('%Y%m%d')}"
+        
+        logger.info(
+            f"🔵 [MultiLeg] Executing {direction.upper()} {trade_type.upper()} {size}x: "
+            f"CALL ${call_strike:.2f} @ ${call_entry_price:.2f} + PUT ${put_strike:.2f} @ ${put_entry_price:.2f}"
+        )
+        logger.info(
+            f"🔵 [MultiLeg] Expected {'credit' if direction == 'short' else 'debit'}: "
+            f"${expected_credit if direction == 'short' else expected_debit:.2f}"
+        )
+        
+        # ============================================================
+        # EXECUTE TWO ORDERS (ONE PER LEG)
+        # ============================================================
+        call_fill = None
+        put_fill = None
+        
+        # Check if this is simulation-only (e.g., Alpaca paper trading limitation)
+        is_sim_only = metadata.get("sim_only", False)
+        
+        if self.options_broker_client and not is_sim_only:
+            # REAL ALPACA ORDER EXECUTION
+            try:
+                from core.live.types import OrderSide, OrderType
+                
+                side = OrderSide.SELL if direction == "short" else OrderSide.BUY
+                
+                # Submit call order
+                logger.info(f"📤 [MultiLeg] Submitting CALL order: {side.value} {size} contracts of {call_symbol}")
+                call_order = self.options_broker_client.submit_options_order(
+                    option_symbol=call_symbol,
+                    side=side,
+                    quantity=size,
+                    order_type=OrderType.LIMIT,
+                    limit_price=call_entry_price,
+                )
+                
+                # Submit put order
+                logger.info(f"📤 [MultiLeg] Submitting PUT order: {side.value} {size} contracts of {put_symbol}")
+                put_order = self.options_broker_client.submit_options_order(
+                    option_symbol=put_symbol,
+                    side=side,
+                    quantity=size,
+                    order_type=OrderType.LIMIT,
+                    limit_price=put_entry_price,
+                )
+                
+                # Track fills
+                call_fill = LegFill(
+                    leg_type="call",
+                    option_symbol=call_symbol,
+                    strike=call_strike,
+                    quantity=call_order.filled_quantity if call_order.filled_quantity > 0 else size,
+                    fill_price=call_order.filled_price if call_order.filled_price > 0 else call_entry_price,
+                    fill_time=datetime.now(),
+                    order_id=call_order.order_id,
+                    status=call_order.status.value if hasattr(call_order.status, 'value') else str(call_order.status),
+                )
+                
+                put_fill = LegFill(
+                    leg_type="put",
+                    option_symbol=put_symbol,
+                    strike=put_strike,
+                    quantity=put_order.filled_quantity if put_order.filled_quantity > 0 else size,
+                    fill_price=put_order.filled_price if put_order.filled_price > 0 else put_entry_price,
+                    fill_time=datetime.now(),
+                    order_id=put_order.order_id,
+                    status=put_order.status.value if hasattr(put_order.status, 'value') else str(put_order.status),
+                )
+                
+                logger.info(
+                    f"✅ [MultiLeg] CALL fill: {call_fill.quantity} @ ${call_fill.fill_price:.2f} "
+                    f"(status: {call_fill.status})"
+                )
+                logger.info(
+                    f"✅ [MultiLeg] PUT fill: {put_fill.quantity} @ ${put_fill.fill_price:.2f} "
+                    f"(status: {put_fill.status})"
+                )
+                
+                # Verify credit/debit matches
+                actual_call_cost = call_fill.total_cost
+                actual_put_cost = put_fill.total_cost
+                actual_net = actual_call_cost + actual_put_cost
+                
+                if direction == "short":
+                    actual_credit = actual_net
+                    logger.info(
+                        f"✅ [MultiLeg] Actual credit: ${actual_credit:.2f} "
+                        f"(expected: ${expected_credit:.2f}, diff: ${actual_credit - expected_credit:.2f})"
+                    )
+                else:
+                    actual_debit = actual_net
+                    logger.info(
+                        f"✅ [MultiLeg] Actual debit: ${actual_debit:.2f} "
+                        f"(expected: ${expected_debit:.2f}, diff: ${actual_debit - expected_debit:.2f})"
+                    )
+                
+            except Exception as e:
+                logger.error(f"❌ [MultiLeg] Failed to submit real orders: {e}", exc_info=True)
+                # Fall through to synthetic execution
+                logger.info("⚠️ [MultiLeg] Falling back to synthetic execution")
+        
+        # If no real fills, create synthetic fills
+        if call_fill is None or put_fill is None:
+            call_fill = LegFill(
+                leg_type="call",
+                option_symbol=call_symbol,
+                strike=call_strike,
+                quantity=size,
+                fill_price=call_entry_price,
+                fill_time=datetime.now(),
+                status="filled",
+            )
+            
+            put_fill = LegFill(
+                leg_type="put",
+                option_symbol=put_symbol,
+                strike=put_strike,
+                quantity=size,
+                fill_price=put_entry_price,
+                fill_time=datetime.now(),
+                status="filled",
+            )
+            
+            logger.info(f"📊 [MultiLeg] Using synthetic fills (no real broker client)")
+        
+        # ============================================================
+        # CREATE MULTI-LEG POSITION
+        # ============================================================
+        ml_pos = self.options_portfolio.add_multi_leg_position(
+            symbol=symbol,
+            trade_type=trade_type,
+            direction=direction,
+            multi_leg_id=multi_leg_id,
+            call_option_symbol=call_symbol,
+            call_strike=call_strike,
+            call_quantity=size,
+            call_entry_price=call_fill.fill_price,
+            call_delta=call_delta,
+            call_theta=call_theta,
+            call_iv=call_iv,
+            put_option_symbol=put_symbol,
+            put_strike=put_strike,
+            put_quantity=size,
+            put_entry_price=put_fill.fill_price,
+            put_delta=put_delta,
+            put_theta=put_theta,
+            put_iv=put_iv,
+            expiration=expiration,
+            entry_time=datetime.now(),
+            underlying_price=underlying_price,
+            call_fill=call_fill,
+            put_fill=put_fill,
+            regime_at_entry=regime_at_entry,
+            vol_bucket_at_entry=vol_bucket_at_entry,
+        )
+        
+        # Update fills in position
+        self.options_portfolio.update_multi_leg_fill(multi_leg_id, "call", call_fill)
+        self.options_portfolio.update_multi_leg_fill(multi_leg_id, "put", put_fill)
+        
+        logger.info(
+            f"✅ [MultiLeg] {trade_type.upper()} position created: {multi_leg_id}\n"
+            f"   CALL: {size}x @ ${call_fill.fill_price:.2f} (fill: {call_fill.status})\n"
+            f"   PUT: {size}x @ ${put_fill.fill_price:.2f} (fill: {put_fill.status})\n"
+            f"   Net {'credit' if direction == 'short' else 'debit'}: "
+            f"${ml_pos.net_premium:.2f}\n"
+            f"   Both legs filled: {ml_pos.both_legs_filled}"
+        )
+        
+        return OptionsExecutionResult(
+            success=True,
+            reason=(
+                f"{direction.upper()} {trade_type.upper()} {size}x executed: "
+                f"CALL @ ${call_fill.fill_price:.2f} + PUT @ ${put_fill.fill_price:.2f}, "
+                f"net {'credit' if direction == 'short' else 'debit'}=${ml_pos.net_premium:.2f}"
+            ),
+            option_symbol=multi_leg_id,
+        )
     
     def _generate_option_symbol(
         self,

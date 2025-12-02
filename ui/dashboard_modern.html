@@ -773,7 +773,7 @@
                     </div>
                     
                     <!-- Options P&L by Symbol & Comparison (Bottom Row) -->
-                    <div class="grid-2-col">
+                    <div class="grid-2-col" style="margin-bottom: 20px;">
                         <div class="data-card">
                             <div class="card-header">Options P&L by Symbol</div>
                             <div class="card-body" style="padding: 15px;">
@@ -795,6 +795,54 @@
                                 <div style="display: none; text-align: center; color: var(--text-secondary); padding: 40px;">
                                     <i class="fas fa-balance-scale" style="font-size: 48px; margin-bottom: 10px; opacity: 0.3;"></i>
                                     <div>Insufficient data for comparison</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Multi-Leg Positions & Trade History -->
+                    <div class="grid-2-col">
+                        <div class="data-card">
+                            <div class="card-header">Multi-Leg Open Positions</div>
+                            <div class="card-body" style="padding: 15px;">
+                                <div style="overflow-x: auto;">
+                                    <table class="wb-table" id="multiLegPositionsTable" style="width: 100%; font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Strategy</th>
+                                                <th>Symbol</th>
+                                                <th>Call Strike</th>
+                                                <th>Put Strike</th>
+                                                <th>Credit/Debit</th>
+                                                <th>P&L</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="data-card">
+                            <div class="card-header">Multi-Leg Trade History</div>
+                            <div class="card-body" style="padding: 15px;">
+                                <div style="overflow-x: auto;">
+                                    <table class="wb-table" id="multiLegTradesTable" style="width: 100%; font-size: 12px;">
+                                        <thead>
+                                            <tr>
+                                                <th>Strategy</th>
+                                                <th>Entry</th>
+                                                <th>Exit</th>
+                                                <th>Total P&L</th>
+                                                <th>Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading...</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -945,6 +993,8 @@
                 updateVolatilityAnalytics();
             } else if (tabId === 'options') {
                 updateOptionsAnalytics();
+                updateMultiLegPositions();
+                updateMultiLegTrades();
             }
         }
         
@@ -1257,6 +1307,89 @@
             }
         }
         
+        async function updateMultiLegPositions() {
+            try {
+                const res = await fetch(`${API_BASE}/options/positions`);
+                const data = await res.json();
+                
+                const table = document.getElementById('multiLegPositionsTable');
+                if (!table) return;
+                
+                const tbody = table.querySelector('tbody');
+                tbody.innerHTML = '';
+                
+                const positions = data.multi_leg_positions || [];
+                
+                if (positions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-secondary);">No multi-leg positions</td></tr>';
+                    return;
+                }
+                
+                positions.forEach(pos => {
+                    const row = document.createElement('tr');
+                    const strategy = pos.trade_type === 'straddle' ? 'Theta Harvester' : 'Gamma Scalper';
+                    const direction = pos.direction === 'short' ? 'SELL' : 'BUY';
+                    const pnlColor = pos.combined_unrealized_pnl >= 0 ? '#10b981' : '#ef4444';
+                    const status = pos.both_legs_filled ? 
+                        (pos.call_fill_status === 'filled' && pos.put_fill_status === 'filled' ? '✅ Filled' : '⚠️ Partial') :
+                        '⏳ Pending';
+                    
+                    row.innerHTML = `
+                        <td>${strategy}</td>
+                        <td>${pos.symbol}</td>
+                        <td>$${pos.call_strike.toFixed(2)}</td>
+                        <td>$${pos.put_strike.toFixed(2)}</td>
+                        <td>${direction === 'SELL' ? '+' : '-'}$${Math.abs(pos.net_premium).toFixed(2)}</td>
+                        <td style="color: ${pnlColor}">$${pos.combined_unrealized_pnl.toFixed(2)}</td>
+                        <td>${status}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (e) {
+                console.error('Error updating multi-leg positions:', e);
+            }
+        }
+        
+        async function updateMultiLegTrades() {
+            try {
+                const res = await fetch(`${API_BASE}/trades/options/multi-leg?limit=20`);
+                const data = await res.json();
+                
+                const table = document.getElementById('multiLegTradesTable');
+                if (!table) return;
+                
+                const tbody = table.querySelector('tbody');
+                tbody.innerHTML = '';
+                
+                const trades = data.trades || [];
+                
+                if (trades.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-secondary);">No multi-leg trades</td></tr>';
+                    return;
+                }
+                
+                trades.forEach(trade => {
+                    const row = document.createElement('tr');
+                    const strategy = trade.trade_type === 'straddle' ? 'Theta Harvester' : 'Gamma Scalper';
+                    const entryTime = new Date(trade.entry_time).toLocaleString();
+                    const exitTime = new Date(trade.exit_time).toLocaleString();
+                    const pnlColor = trade.combined_pnl >= 0 ? '#10b981' : '#ef4444';
+                    const duration = `${Math.round(trade.duration_minutes)}m`;
+                    
+                    row.innerHTML = `
+                        <td>${strategy}</td>
+                        <td>${entryTime}</td>
+                        <td>${exitTime}</td>
+                        <td style="color: ${pnlColor}">$${trade.combined_pnl.toFixed(2)} (${trade.combined_pnl_pct.toFixed(1)}%)</td>
+                        <td>${duration}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (e) {
+                console.error('Error updating multi-leg trades:', e);
+            }
+        }
+        
         async function updateOptionsAnalytics() {
             try {
                 // Update all options visualization images with cache-busting
@@ -1298,6 +1431,10 @@
                     const nextDiv = vsStockImg.nextElementSibling;
                     if (nextDiv) nextDiv.style.display = 'none';
                 }
+                
+                // Update multi-leg positions and trades
+                updateMultiLegPositions();
+                updateMultiLegTrades();
                 
             } catch (error) {
                 console.error('Error updating options analytics:', error);

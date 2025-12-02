@@ -136,6 +136,12 @@ class LiveTradingLoop:
             options_broker_client=options_broker_client,  # Real Alpaca orders enabled
         )
         
+        # Multi-leg profit manager for straddles/strangles
+        from core.live.multi_leg_profit_manager import MultiLegProfitManager
+        self.multi_leg_profit_manager = MultiLegProfitManager(
+            options_data_feed=options_data_feed,
+        )
+        
         # Pass options_broker_client to agents that need it (for Alpaca detection)
         # This allows agents to detect Alpaca paper mode and adjust behavior
         # (e.g., ThetaHarvesterAgent disables real straddle selling in Alpaca paper)
@@ -1026,11 +1032,47 @@ class LiveTradingLoop:
                         logger.info(f"✅ [OptionsExecution] Closed options position: {result.option_symbol}, P&L: ${result.trade.pnl:.2f}")
                     elif result.option_position:
                         logger.info(f"✅ [OptionsExecution] Opened options position: {result.option_symbol}, Quantity: {result.option_position.quantity:.2f} contracts")
+                    
+                    # Track multi-leg positions for profit management
+                    if intent.option_type in ("straddle", "strangle") and result.option_symbol:
+                        # Extract strategy from metadata
+                        strategy = metadata.get("strategy", "unknown")
+                        direction = "short" if intent.position_delta < 0 else "long"
+                        net_premium = metadata.get("total_credit", 0) if direction == "short" else metadata.get("total_debit", 0)
+                        
+                        # Get entry IV and GEX
+                        entry_iv = None
+                        entry_gex = None
+                        if self.options_data_feed:
+                            # Try to get IV from call option
+                            call_symbol = metadata.get("call_symbol", "")
+                            if call_symbol:
+                                greeks = self.options_data_feed.get_option_greeks(call_symbol)
+                                if greeks:
+                                    entry_iv = greeks.get("implied_volatility")
+                        
+                        if hasattr(signal, 'gex_strength'):
+                            entry_gex = signal.gex_strength
+                        
+                        self.multi_leg_profit_manager.track_position(
+                            multi_leg_id=result.option_symbol,
+                            strategy=strategy,
+                            direction=direction,
+                            net_premium=net_premium,
+                            entry_time=datetime.now(),
+                            entry_bar=self.bar_count,
+                            entry_iv=entry_iv,
+                            entry_gex_strength=entry_gex,
+                        )
                 else:
                     logger.warning(f"⚠️ [OptionsExecution] Options trade failed: {result.reason}")
                 
                 # Update options positions with current prices
                 self.options_executor.update_positions(symbol, bar.close)
+                
+                # Check multi-leg profit exits
+                self._check_multi_leg_exits(symbol, bar.close, signal)
+                
                 return  # Options trades handled, skip stock execution
             
             # Stock trade execution (existing logic)
@@ -1190,6 +1232,9 @@ class LiveTradingLoop:
         # Update options positions with current underlying price
         self.options_executor.update_positions(symbol, bar.close)
         
+        # Check multi-leg profit exits
+        self._check_multi_leg_exits(symbol, bar.close, signal)
+        
         # Update profit manager
         if self.profit_manager:
             self.profit_manager.update_position(symbol, bar.close, self.bar_count)
@@ -1321,6 +1366,70 @@ class LiveTradingLoop:
         df["iv_proxy"] = df["atr_pct"] * 1.5  # Simple proxy
 
         return df
+    
+    def _check_multi_leg_exits(
+        self,
+        symbol: str,
+        underlying_price: float,
+        signal: RegimeSignal,
+    ) -> None:
+        """Check and execute exits for multi-leg positions."""
+        if not self.multi_leg_profit_manager:
+            return
+        
+        # Get all open multi-leg positions for this symbol
+        multi_leg_positions = self.options_portfolio.get_all_multi_leg_positions()
+        symbol_positions = [ml_pos for ml_pos in multi_leg_positions if ml_pos.symbol == symbol]
+        
+        for ml_pos in symbol_positions:
+            # Calculate current P&L percentage
+            current_pnl_pct = (ml_pos.combined_unrealized_pnl / ml_pos.net_premium * 100.0) if ml_pos.net_premium > 0 else 0.0
+            
+            # Check if should exit
+            should_close, reason = self.multi_leg_profit_manager.should_take_profit(
+                multi_leg_id=ml_pos.multi_leg_id,
+                current_pnl_pct=current_pnl_pct,
+                current_bar=self.bar_count,
+                current_regime=signal,
+                symbol=symbol,
+            )
+            
+            if should_close:
+                logger.info(
+                    f"🔔 [MultiLegExit] Closing {ml_pos.trade_type.upper()} {ml_pos.multi_leg_id}: {reason}"
+                )
+                
+                # Close the multi-leg position
+                trade = self.options_executor.close_multi_leg_position(
+                    multi_leg_id=ml_pos.multi_leg_id,
+                    underlying_price=underlying_price,
+                    reason=reason,
+                    agent=ml_pos.multi_leg_id.split("_")[1] if "_" in ml_pos.multi_leg_id else "system",
+                )
+                
+                if trade:
+                    logger.info(
+                        f"✅ [MultiLegExit] Closed {ml_pos.trade_type.upper()}: "
+                        f"P&L=${trade.combined_pnl:.2f} ({trade.combined_pnl_pct:.1f}%)"
+                    )
+                    
+                    # Stop tracking
+                    self.multi_leg_profit_manager.remove_position(ml_pos.multi_leg_id)
+                    
+                    # Send notification if available
+                    if self.notification_service:
+                        try:
+                            self.notification_service.send_trade_notification(
+                                symbol=symbol,
+                                side="CLOSE",
+                                quantity=ml_pos.call_quantity + ml_pos.put_quantity,
+                                price=underlying_price,
+                                order_id=None,
+                                pnl=trade.combined_pnl,
+                                pnl_pct=trade.combined_pnl_pct,
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to send multi-leg close notification: {e}")
 
     def _save_state(self) -> None:
         """Save current state to state store."""

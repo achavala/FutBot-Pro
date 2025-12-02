@@ -743,6 +743,83 @@ async def get_options_roundtrip_trades(
         end_date=end_dt,
         limit=limit
     )
+
+
+@app.get("/trades/options/multi-leg")
+async def get_multi_leg_trades(
+    symbol: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 100
+):
+    """
+    Get completed multi-leg options trades (straddles and strangles).
+    
+    Returns trades with combined P&L across both legs.
+    """
+    if not bot_manager or not bot_manager.live_loop:
+        return {"trades": []}
+    
+    if not hasattr(bot_manager.live_loop, 'options_portfolio'):
+        return {"trades": []}
+    
+    # Parse dates if provided
+    start_dt = None
+    end_dt = None
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid start_date format: {start_date}")
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid end_date format: {end_date}")
+    
+    portfolio = bot_manager.live_loop.options_portfolio
+    all_trades = portfolio.multi_leg_trades
+    
+    # Filter
+    if symbol:
+        all_trades = [t for t in all_trades if t.symbol == symbol]
+    if start_dt:
+        all_trades = [t for t in all_trades if t.entry_time >= start_dt]
+    if end_dt:
+        all_trades = [t for t in all_trades if t.exit_time <= end_dt]
+    
+    # Sort by exit time (most recent first)
+    all_trades.sort(key=lambda t: t.exit_time, reverse=True)
+    trades = all_trades[:limit]
+    
+    return {
+        "trades": [
+            {
+                "multi_leg_id": trade.multi_leg_id,
+                "symbol": trade.symbol,
+                "trade_type": trade.trade_type,
+                "direction": trade.direction,
+                "call_strike": trade.call_strike,
+                "put_strike": trade.put_strike,
+                "call_quantity": trade.call_quantity,
+                "put_quantity": trade.put_quantity,
+                "call_entry_price": trade.call_entry_price,
+                "put_entry_price": trade.put_entry_price,
+                "call_exit_price": trade.call_exit_price,
+                "put_exit_price": trade.put_exit_price,
+                "entry_time": trade.entry_time.isoformat(),
+                "exit_time": trade.exit_time.isoformat(),
+                "combined_pnl": trade.combined_pnl,
+                "combined_pnl_pct": trade.combined_pnl_pct,
+                "net_premium": trade.net_premium,
+                "duration_minutes": trade.duration_minutes,
+                "reason": trade.reason,
+                "agent": trade.agent,
+            }
+            for trade in trades
+        ],
+        "total_count": len(trades),
+    }
     
     # Format trades with additional calculated fields
     trade_dicts = []
@@ -2626,31 +2703,81 @@ async def start_options_trading(request: dict):
 
 @app.get("/options/positions")
 async def get_options_positions():
-    """Get current options positions."""
+    """Get current options positions (single-leg and multi-leg)."""
     global bot_manager
     
     if not bot_manager or not bot_manager.live_loop:
-        return {"positions": []}
+        return {"positions": [], "multi_leg_positions": []}
     
-    # Get options positions from broker
+    # Get single-leg positions from portfolio
+    single_leg_positions = []
+    multi_leg_positions = []
+    
+    if hasattr(bot_manager.live_loop, 'options_portfolio'):
+        portfolio = bot_manager.live_loop.options_portfolio
+        single_leg_positions = portfolio.get_all_positions()
+        multi_leg_positions = portfolio.get_all_multi_leg_positions()
+    
+    # Also check broker for real positions
+    broker_positions = []
     if hasattr(bot_manager.live_loop.executor, "broker_client"):
         broker = bot_manager.live_loop.executor.broker_client
         if hasattr(broker, "get_options_positions"):
-            positions = broker.get_options_positions()
-            return {
-                "positions": [
-                    {
-                        "symbol": p.symbol,
-                        "quantity": p.quantity,
-                        "avg_entry_price": p.avg_entry_price,
-                        "current_price": p.current_price,
-                        "market_value": p.market_value,
-                    }
-                    for p in positions
-                ]
-            }
+            broker_positions = broker.get_options_positions()
     
-    return {"positions": []}
+    return {
+        "positions": [
+            {
+                "symbol": pos.symbol,
+                "option_symbol": pos.option_symbol,
+                "option_type": pos.option_type,
+                "strike": pos.strike,
+                "quantity": pos.quantity,
+                "entry_price": pos.entry_price,
+                "current_price": pos.current_price,
+                "unrealized_pnl": pos.unrealized_pnl,
+                "delta": pos.delta,
+                "theta": pos.theta,
+                "iv": pos.iv,
+                "days_to_expiry": pos.days_to_expiry,
+            }
+            for pos in single_leg_positions
+        ],
+        "multi_leg_positions": [
+            {
+                "multi_leg_id": ml_pos.multi_leg_id,
+                "symbol": ml_pos.symbol,
+                "trade_type": ml_pos.trade_type,
+                "direction": ml_pos.direction,
+                "call_strike": ml_pos.call_strike,
+                "put_strike": ml_pos.put_strike,
+                "call_quantity": ml_pos.call_quantity,
+                "put_quantity": ml_pos.put_quantity,
+                "call_entry_price": ml_pos.call_entry_price,
+                "put_entry_price": ml_pos.put_entry_price,
+                "call_current_price": ml_pos.call_current_price,
+                "put_current_price": ml_pos.put_current_price,
+                "net_premium": ml_pos.net_premium,
+                "combined_unrealized_pnl": ml_pos.combined_unrealized_pnl,
+                "both_legs_filled": ml_pos.both_legs_filled,
+                "entry_time": ml_pos.entry_time.isoformat(),
+                "days_to_expiry": ml_pos.days_to_expiry,
+                "call_fill_status": ml_pos.call_fill.status if ml_pos.call_fill else "pending",
+                "put_fill_status": ml_pos.put_fill.status if ml_pos.put_fill else "pending",
+            }
+            for ml_pos in multi_leg_positions
+        ],
+        "broker_positions": [
+            {
+                "symbol": p.symbol,
+                "quantity": p.quantity,
+                "avg_entry_price": p.avg_entry_price,
+                "current_price": p.current_price,
+                "market_value": p.market_value,
+            }
+            for p in broker_positions
+        ]
+    }
 
 
 @app.post("/options/close")
