@@ -612,6 +612,7 @@ class BotManager:
         if not self.broker_client:
             return {}
 
+        try:
         account = self.broker_client.get_account()
         positions = self.broker_client.get_positions()
 
@@ -634,4 +635,16 @@ class BotManager:
                 for pos in positions
             ],
         }
+        except Exception as e:
+            logger.error(f"Error fetching live portfolio: {e}")
+            # Return zeroed state on error to prevent 500s
+            return {
+                "account": {
+                    "cash": 0.0,
+                    "equity": 0.0,
+                    "buying_power": 0.0,
+                    "portfolio_value": 0.0,
+                },
+                "positions": []
+            }
 

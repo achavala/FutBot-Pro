@@ -50,14 +50,14 @@ class PolygonSettings(BaseModel):
                 # If YAML parsing fails, fall through to env var
                 pass
         
-        # 2. Try environment variable
-        api_key = os.environ.get("POLYGON_API_KEY")
+        # 2. Try environment variables (POLYGON_API_KEY or MASSIVE_API_KEY)
+        api_key = os.environ.get("POLYGON_API_KEY") or os.environ.get("MASSIVE_API_KEY")
         if api_key:
             return cls(api_key=api_key)
         
         raise RuntimeError(
-            "Polygon API key not found. "
+            "Polygon/Massive API key not found. "
             "Please set it in config/settings.yaml (polygon.api_key) "
-            "or set POLYGON_API_KEY environment variable."
+            "or set POLYGON_API_KEY or MASSIVE_API_KEY environment variable."
         )
 

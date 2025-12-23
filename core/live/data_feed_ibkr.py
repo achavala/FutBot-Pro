@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Deque, List, Optional
 
+import pandas as pd
 from ib_insync import IB, Stock, util
 
 from core.live.data_feed import BaseDataFeed
@@ -90,6 +91,9 @@ class IBKRDataFeed(BaseDataFeed):
         self.connected = False
         self._connection_lock = threading.Lock()
         self._use_existing_ib = ib_instance is not None or broker_client is not None
+        # Real-time bar subscriptions
+        self.realtime_subscriptions: dict[str, object] = {}  # Store RealTimeBar objects
+        self.realtime_bar_callbacks: dict[str, callable] = {}  # Store callbacks
 
     def connect(self) -> bool:
         """Connect to IBKR (or use existing connection)."""
@@ -125,7 +129,7 @@ class IBKRDataFeed(BaseDataFeed):
 
     def subscribe(self, symbols: List[str], preload_bars: int = 60) -> bool:
         """
-        Subscribe to symbols and preload historical bars.
+        Subscribe to symbols and preload historical bars, then start real-time subscriptions.
         
         Args:
             symbols: List of symbols to subscribe to
@@ -147,16 +151,153 @@ class IBKRDataFeed(BaseDataFeed):
                 loaded = len(self.bar_buffers[symbol])
                 logger.info(f"Preload complete for {symbol}: {loaded} bars loaded")
 
-        logger.info(f"Subscribed to symbols: {symbols}")
+            # Start real-time bar subscription
+            self._start_realtime_subscription(symbol)
+
+        logger.info(f"Subscribed to symbols: {symbols} (real-time enabled)")
         return True
+    
+    def _start_realtime_subscription(self, symbol: str) -> None:
+        """Start real-time bar subscription for a symbol."""
+        if not self.ib or not self.ib.isConnected():
+            logger.warning(f"Cannot start real-time subscription for {symbol}: not connected")
+            return
+        
+        try:
+            def _subscribe():
+                try:
+                    contract = Stock(symbol, "SMART", "USD")
+                    
+                    # Calculate bar size in seconds
+                    bar_size_seconds = 60  # Default: 1 minute bars
+                    if "5" in self.bar_size:
+                        bar_size_seconds = 5
+                    elif "15" in self.bar_size:
+                        bar_size_seconds = 15
+                    elif "30" in self.bar_size:
+                        bar_size_seconds = 30
+                    elif "hour" in self.bar_size.lower():
+                        bar_size_seconds = 3600
+                    
+                    # Create callback for real-time bars
+                    def on_bar_update(realtime_bar_list, has_new_bar: bool):
+                        if has_new_bar and realtime_bar_list:
+                            try:
+                                # Get the latest bar from the list
+                                latest_bar = realtime_bar_list[-1] if isinstance(realtime_bar_list, list) else realtime_bar_list
+                                
+                                # Extract bar data
+                                bar_time = latest_bar.time.replace(tzinfo=None) if hasattr(latest_bar.time, 'replace') else latest_bar.time
+                                if isinstance(bar_time, datetime):
+                                    bar_time = bar_time.replace(tzinfo=None)
+                                
+                                # Check if this is a new bar (not duplicate)
+                                if symbol in self.last_bar_times:
+                                    if bar_time <= self.last_bar_times[symbol]:
+                                        return  # Duplicate bar
+                                
+                                self.last_bar_times[symbol] = bar_time
+                                
+                                # Convert to our Bar type
+                                bar = Bar(
+                                    symbol=symbol,
+                                    timestamp=bar_time,
+                                    open=float(latest_bar.open),
+                                    high=float(latest_bar.high),
+                                    low=float(latest_bar.low),
+                                    close=float(latest_bar.close),
+                                    volume=float(latest_bar.volume),
+                                )
+                                
+                                # Add to buffer
+                                if symbol not in self.bar_buffers:
+                                    self.bar_buffers[symbol] = deque(maxlen=500)
+                                
+                                # Avoid duplicates
+                                if not any(b.timestamp == bar.timestamp for b in self.bar_buffers[symbol]):
+                                    self.bar_buffers[symbol].append(bar)
+                                    logger.info(f"📊 Real-time bar received for {symbol}: {bar_time} @ ${bar.close:.2f}")
+                                
+                            except Exception as e:
+                                logger.error(f"Error processing real-time bar for {symbol}: {e}")
+                                import traceback
+                                logger.debug(traceback.format_exc())
+                    
+                    # Subscribe to real-time bars using ib_insync API
+                    # reqRealTimeBars returns a RealTimeBarList object
+                    try:
+                        realtime_bar_list = self.ib.reqRealTimeBars(
+                            contract,
+                            barSize=bar_size_seconds,
+                            whatToShow=self.what_to_show,
+                            useRTH=False,  # Allow after-hours data
+                        )
+                        
+                        # Wait a moment for subscription to establish
+                        self.ib.sleep(0.5)
+                        
+                        # Set callback - RealTimeBarList has updateEvent
+                        realtime_bar_list.updateEvent += on_bar_update
+                        
+                        # Store subscription
+                        self.realtime_subscriptions[symbol] = realtime_bar_list
+                        
+                        logger.info(f"✅ Started real-time bar subscription for {symbol} (barSize={bar_size_seconds}s)")
+                        logger.info(f"📊 Real-time subscription active: {realtime_bar_list is not None}")
+                    except Exception as sub_error:
+                        logger.error(f"❌ Failed to subscribe to real-time bars for {symbol}: {sub_error}")
+                        logger.error(f"   Error type: {type(sub_error).__name__}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                        # Fall back to polling mode
+                        logger.warning(f"⚠️ Falling back to historical data polling for {symbol}")
+                    
+                except Exception as e:
+                    logger.error(f"Error starting real-time subscription for {symbol}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # Run in thread to avoid event loop conflicts
+            _executor.submit(_subscribe)
+            time.sleep(1)  # Give subscription time to start
+            
+        except Exception as e:
+            logger.error(f"Failed to start real-time subscription for {symbol}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _preload_historical_bars(self, symbol: str, count: int) -> None:
         """Preload historical bars for a symbol. Tries Polygon cache first, then IBKR."""
         # First, try to load from Polygon cache if available
-        cache_loaded = self._try_load_from_cache(symbol, count)
-        if cache_loaded >= count:
-            logger.info(f"Preloaded {cache_loaded} bars for {symbol} from cache (target: {count})")
-            return
+        # BUT: For live trading, prefer fresh IBKR data over stale cache
+        # Only use cache if it's recent (within last 24 hours)
+        cache_loaded = 0
+        try:
+            from datetime import datetime, timezone
+            # Check if cache has recent data (within 24 hours)
+            if self.cache_path:
+                from services.cache import BarCache
+                cache = BarCache(self.cache_path)
+                timeframe = self._ibkr_to_polygon_timeframe(self.bar_size)
+                if timeframe:
+                    bars_df = cache.load(symbol, timeframe)
+                    if not bars_df.empty and len(bars_df) > 0:
+                        # Check if most recent bar is within 24 hours
+                        latest_cache_time = bars_df.index[-1]
+                        if isinstance(latest_cache_time, pd.Timestamp):
+                            latest_cache_time = latest_cache_time.to_pydatetime()
+                        time_diff = (datetime.now(timezone.utc) - latest_cache_time.replace(tzinfo=timezone.utc)).total_seconds()
+                        if time_diff < 86400:  # 24 hours
+                            cache_loaded = self._try_load_from_cache(symbol, count)
+                            if cache_loaded >= count:
+                                logger.info(f"Preloaded {cache_loaded} bars for {symbol} from recent cache (target: {count})")
+                                return
+                        else:
+                            logger.info(f"Cache data for {symbol} is stale ({time_diff/3600:.1f} hours old), requesting fresh data from IBKR")
+        except Exception as e:
+            logger.debug(f"Could not check cache freshness: {e}")
+        
+        # If cache didn't have enough or was stale, try IBKR
         
         # If cache didn't have enough, try IBKR
         if not self.ib or not self.ib.isConnected():
@@ -373,7 +514,10 @@ class IBKRDataFeed(BaseDataFeed):
         return None
 
     def get_next_bar(self, symbol: str, timeout: float = 5.0) -> Optional[Bar]:
-        """Get next bar for symbol. Uses preloaded bars first, then requests new ones."""
+        """
+        Get next bar for symbol. 
+        Priority: Real-time bars from subscription > Preloaded bars > Poll historical data (fallback)
+        """
         # Ensure we have IB instance
         if self.broker_client and hasattr(self.broker_client, 'ib'):
             self.ib = self.broker_client.ib
@@ -390,54 +534,89 @@ class IBKRDataFeed(BaseDataFeed):
             logger.debug(f"Symbol {symbol} not subscribed")
             return None
 
-        # First, check if we have preloaded bars we haven't used yet
+        # PRIORITY 1: Check real-time bar buffer (from subscription)
         if symbol in self.bar_buffers and len(self.bar_buffers[symbol]) > 0:
             # Get the oldest bar from buffer (FIFO)
             bar = self.bar_buffers[symbol].popleft()
-            logger.debug(f"Returning preloaded bar for {symbol}: {bar.timestamp}")
+            logger.debug(f"📊 Returning real-time bar for {symbol}: {bar.timestamp} @ ${bar.close:.2f}")
             return bar
 
-        # No preloaded bars available, request new one (but with longer timeout)
+        # PRIORITY 2: If real-time subscription is active, wait a bit for new bar
+        if symbol in self.realtime_subscriptions:
+            # Real-time subscription is active, wait briefly for new bar
+            import time
+            time.sleep(0.5)  # Wait 500ms for real-time bar to arrive
+            if symbol in self.bar_buffers and len(self.bar_buffers[symbol]) > 0:
+                bar = self.bar_buffers[symbol].popleft()
+                logger.debug(f"📊 Returning real-time bar (after wait) for {symbol}: {bar.timestamp}")
+                return bar
+
+        # PRIORITY 3: Check Massive API cache for recent data (if available)
+        if self.cache_path:
+            try:
+                from services.cache import BarCache
+                cache = BarCache(self.cache_path)
+                timeframe = self._ibkr_to_polygon_timeframe(self.bar_size)
+                if timeframe:
+                    bars_df = cache.load(symbol, timeframe)
+                    if not bars_df.empty and len(bars_df) > 0:
+                        # Check if most recent bar is recent (within last 5 minutes)
+                        latest_cache_time = bars_df.index[-1]
+                        if isinstance(latest_cache_time, pd.Timestamp):
+                            latest_cache_time = latest_cache_time.to_pydatetime()
+                        time_diff = (datetime.now(timezone.utc) - latest_cache_time.replace(tzinfo=timezone.utc)).total_seconds()
+                        
+                        # If cache has data within last 5 minutes, use it
+                        if time_diff < 300:  # 5 minutes
+                            latest_bar_data = bars_df.iloc[-1]
+                            bar = Bar(
+                                symbol=symbol,
+                                timestamp=latest_cache_time.replace(tzinfo=None),
+                                open=float(latest_bar_data['open']),
+                                high=float(latest_bar_data['high']),
+                                low=float(latest_bar_data['low']),
+                                close=float(latest_bar_data['close']),
+                                volume=float(latest_bar_data.get('volume', 0)),
+                            )
+                            # Only return if this is a new bar (not the same as last one)
+                            if symbol not in self.last_bar_times or bar.timestamp > self.last_bar_times[symbol]:
+                                self.last_bar_times[symbol] = bar.timestamp
+                                logger.info(f"📊 Returning recent bar from Massive cache for {symbol}: {bar.timestamp} @ ${bar.close:.2f} (age: {time_diff:.0f}s)")
+                                return bar
+                            else:
+                                logger.debug(f"Cache bar for {symbol} is not new (already processed)")
+            except Exception as e:
+                logger.debug(f"Could not check Massive cache: {e}")
+        
+        # PRIORITY 4: Fallback to polling historical data from IBKR (if real-time not available)
+        logger.debug(f"⚠️ No real-time bars available for {symbol}, falling back to IBKR historical polling")
         try:
-            # Request latest bar using historical data
             def _get_bar():
                 try:
-                    if not self.ib:
-                        logger.warning(f"No IB instance in thread for {symbol}")
+                    if not self.ib or not self.ib.isConnected():
                         return None
                         
-                    if not self.ib.isConnected():
-                        logger.warning(f"IB not connected for {symbol}")
-                        return None
-
-                    # Create contract
                     contract = Stock(symbol, "SMART", "USD")
 
-                    # Request the most recent bar (duration 2 minutes, endDateTime empty = now)
                     try:
                         bars = self.ib.reqHistoricalData(
                             contract,
                             endDateTime="",
-                            durationStr="1 D",  # Get last day, then take most recent bar
+                            durationStr="1 D",
                             barSizeSetting=self.bar_size,
                             whatToShow=self.what_to_show,
-                            useRTH=False,  # Allow after-hours data
+                            useRTH=False,
                             formatDate=1,
                         )
-                        # Wait for data
                         self.ib.sleep(1)
                     except Exception as req_error:
                         logger.error(f"reqHistoricalData failed for {symbol}: {type(req_error).__name__}: {req_error}")
                         return None
 
                     if not bars:
-                        logger.debug(f"No bars returned for {symbol}")
                         return None
 
-                    # Get the most recent complete bar
                     latest_bar = bars[-1]
-
-                    # Check if this is a new bar (not the same as last one)
                     bar_time = latest_bar.date.replace(tzinfo=None) if hasattr(latest_bar.date, 'replace') else latest_bar.date
                     if isinstance(bar_time, datetime):
                         bar_time = bar_time.replace(tzinfo=None)
@@ -448,7 +627,6 @@ class IBKRDataFeed(BaseDataFeed):
 
                     self.last_bar_times[symbol] = bar_time
 
-                    # Convert to our Bar type
                     bar = Bar(
                         symbol=symbol,
                         timestamp=bar_time,
@@ -459,31 +637,37 @@ class IBKRDataFeed(BaseDataFeed):
                         volume=float(latest_bar.volume),
                     )
 
-                    # Store in buffer
+                    if symbol not in self.bar_buffers:
+                        self.bar_buffers[symbol] = deque(maxlen=500)
                     self.bar_buffers[symbol].append(bar)
 
                     return bar
 
                 except Exception as e:
                     logger.error(f"Error getting bar for {symbol}: {type(e).__name__}: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
                     return None
 
-            # Run in thread to avoid event loop conflicts
-            # Use longer timeout for historical data requests (30 seconds)
             future = _executor.submit(_get_bar)
-            result = future.result(timeout=30.0)  # Longer timeout for API calls
+            result = future.result(timeout=30.0)
             return result
 
         except Exception as e:
             logger.error(f"Error in get_next_bar for {symbol}: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return None
 
     def close(self) -> None:
-        """Close data feed."""
+        """Close data feed and cancel real-time subscriptions."""
+        # Cancel all real-time subscriptions
+        for symbol, realtime_bar in self.realtime_subscriptions.items():
+            try:
+                if self.ib and self.ib.isConnected():
+                    self.ib.cancelRealTimeBars(realtime_bar)
+                    logger.info(f"Cancelled real-time subscription for {symbol}")
+            except Exception as e:
+                logger.warning(f"Error cancelling real-time subscription for {symbol}: {e}")
+        
+        self.realtime_subscriptions.clear()
+        self.realtime_bar_callbacks.clear()
         self.connected = False
         self.subscribed_symbols = []
         self.bar_buffers.clear()

@@ -32,9 +32,6 @@ echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
-# Start server
-python3 -m uvicorn ui.fastapi_app:app \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --reload
+# Start server via main.py to ensure BotManager initialization
+python3 main.py --mode api --host 0.0.0.0 --port 8000
 

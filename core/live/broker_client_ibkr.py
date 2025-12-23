@@ -188,7 +188,18 @@ class IBKRBrokerClient(BaseBrokerClient):
     def _ensure_connected(self):
         """Ensure connection is active."""
         if not self._connected or self.ib is None:
+            logger.warning("IBKR connection lost. Attempting to reconnect...")
+            if self.connect():
+                return
             raise RuntimeError("Not connected to IBKR. Call connect() first.")
+        
+        # Double check actual connection state
+        if not self.ib.isConnected():
+             logger.warning("IBKR socket disconnected. Attempting to reconnect...")
+             self.disconnect()
+             if self.connect():
+                 return
+             raise RuntimeError("IBKR socket disconnected")
     
     def _run_in_thread(self, func):
         """Run a function in the executor thread."""

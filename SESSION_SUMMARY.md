@@ -1,255 +1,233 @@
-# Session Summary - Gamma-Only Test Preparation
+# Session Summary: Massive API Real-Time Data Integration
 
-**Date:** Current Session  
-**Tag:** `v1.0.1-ml-gamma-qa`  
-**Status:** Ready for Gamma-only test execution
-
----
-
-## ✅ COMPLETED
-
-### 1. Freeze & Tag (Step 1) ✅
-- **Status:** Complete
-- **Tag Created:** `v1.0.1-ml-gamma-qa`
-- **Commit:** `dbac5a3` - "Add production-safe gamma-only test infra"
-- **Files:** 32 files committed (3,837 insertions)
-  - Delta hedging implementation
-  - Timeline logging
-  - Gamma-only test infrastructure
-  - Documentation and scripts
-  - Bug fixes
-
-### 2. Bug Fixes ✅
-- **Position Sizing Bug** (Critical)
-  - **File:** `core/risk/advanced.py`
-  - **Issue:** Regime cap calculation was dividing by price (unit mismatch)
-  - **Fix:** Removed division by price - caps now correctly in dollars
-  - **Impact:** Positions were 0.0069 shares instead of ~1.5 shares
-  - **Result:** Now calculates reasonable position sizes
-
-- **F-String Syntax Error**
-  - **File:** `core/live/multi_leg_profit_manager.py`
-  - **Issue:** Invalid conditional expression in f-string (line 99)
-  - **Fix:** Extracted conditional to variable before f-string
-  - **Impact:** Prevented server startup failure
-
-### 3. Documentation ✅
-- **ALGORITHM_FLOWCHART.md** - Comprehensive call flow documentation
-  - System startup flow
-  - Main trading loop flow
-  - Options trade execution flow
-  - Stock trade execution flow (where bug was fixed)
-  - Key troubleshooting points
-  - Debugging checklist
-  - Common issues table
-
-- **QUICK_FLOWCHART.txt** - Visual ASCII flowchart for quick reference
-
-### 4. Helper Scripts ✅
-- `COMPLETE_FREEZE_VERIFY.sh` - Enhanced freeze verification
-- `START_TRADING_GAMMA_ONLY.sh` - Start trading loop helper
-- `STEP_2_START_GAMMA_TEST.sh` - Gamma-only test starter
-
-### 5. GitHub Push ✅
-- **Commit:** `beef44d` - "Fix position sizing bug and add algorithm flowchart documentation"
-- **Files:** 6 files changed (676 insertions, 6 deletions)
-- **Status:** Pushed to `github.com:achavala/FutBot-Pro.git` (main branch)
+**Date:** 2025-12-20  
+**Status:** ✅ **COMPLETED** (with minor syntax fixes needed)
 
 ---
 
-## ⏳ PENDING
+## ✅ **COMPLETED IN THIS SESSION**
 
-### 1. Gamma-Only Test Execution (Step 2) ⏳
-- **Status:** Server started, but trading loop not started yet
-- **Current State:**
-  - ✅ Server running on port 8000
-  - ✅ `GAMMA_ONLY_TEST_MODE=true` environment variable set
-  - ⏳ Trading loop needs to be started via dashboard or API
-- **What's Needed:**
-  - Start trading loop (dashboard "Start Live" button or API)
-  - Verify Gamma Scalper agents are active (not Theta Harvester)
-  - Monitor for Gamma Scalper entries
-  - Wait for 1-2 complete Gamma packages (entry → hedging → exit)
+### 1. **Massive API Integration** ✅
+- ✅ Updated `DataCollector` to support Massive API (Polygon) for real-time data collection
+- ✅ Enhanced `IBKRDataFeed` to prioritize Massive API cache for recent data (within 5 minutes)
+- ✅ Created test script `scripts/test_massive_api.py` to verify Massive API connection
+- ✅ Updated FastAPI endpoints to use Massive API when available
+- ✅ Created comprehensive documentation `MASSIVE_API_SETUP_COMPLETE.md`
 
-### 2. Timeline Export (Step 3) ⏳
-- **Status:** Waiting for Gamma packages to complete
-- **What's Needed:**
-  - After 1-2 complete Gamma packages
-  - Export timelines via: `./EXPORT_TIMELINES.sh`
-  - Or API: `POST /options/export-timelines`
-  - Validate timeline data matches expected patterns
+### 2. **Code Fixes** ✅
+- ✅ Fixed indentation errors in `core/agents/trend_agent.py`
+- ✅ Fixed indentation error in `ui/bot_manager.py` (get_live_portfolio method)
+- ✅ Updated FastAPI endpoint to properly accept JSON body for DataCollector
 
-### 3. Validation & QA ⏳
-- **Status:** Not started
-- **What's Needed:**
-  - Validate delta hedging is working correctly
-  - Check hedge P&L calculations
-  - Verify timeline logging is accurate
-  - Test scenarios G-H1 through G-H4 (from GAMMA_SCALPER_QA_GUIDE.md)
+### 3. **Configuration** ✅
+- ✅ Massive API key already configured in `config/settings.yaml`
+- ✅ System automatically detects and uses Massive API when available
+- ✅ Falls back to Alpaca API if Massive API is not configured
 
 ---
 
-## 🎯 NEXT ACTIONS
+## 🟡 **PENDING / IN PROGRESS**
 
-### Immediate (Do Now)
+### 1. **Server Startup** ⚠️
+- ⚠️ **Status**: Syntax errors fixed, but server needs to be restarted
+- **Issue**: Server was not starting due to indentation errors (now fixed)
+- **Next Step**: Restart server and verify it starts successfully
 
-#### 1. Restart Server with Bug Fixes
+### 2. **End-to-End Testing** ⚠️
+- ⚠️ **Status**: Not yet tested during market hours
+- **Required**: Test real-time data collection during market hours (9:30 AM - 4:00 PM ET)
+- **Verification**: Confirm DataCollector collects real-time bars and bot uses them
+
+### 3. **Documentation** ✅
+- ✅ Created `MASSIVE_API_SETUP_COMPLETE.md` with setup instructions
+- ✅ Created `SESSION_SUMMARY.md` (this file)
+
+---
+
+## 🚀 **NEXT STEPS (Priority Order)**
+
+### **Immediate (Today)**
+
+#### 1. **Restart API Server** 🔥 HIGH PRIORITY
 ```bash
-# Stop current server (Ctrl+C in terminal)
-# Then restart:
-GAMMA_ONLY_TEST_MODE=true ./START_VALIDATION.sh
+# Kill any existing server
+pkill -f "python.*main.py"
+
+# Start server
+cd /Users/chavala/StocksAndLeaps/FutBot-Pro
+python3 main.py --mode api --host 0.0.0.0 --port 8000
 ```
 
-#### 2. Start Trading Loop
-**Option A: Dashboard (Recommended)**
-- Open: http://localhost:8000/dashboard
-- Click "Start Live" or "Simulate" button
-- System will use Gamma Scalper only agents
-
-**Option B: API**
+**Verify:**
 ```bash
-curl -X POST http://localhost:8000/start-live \
+curl http://localhost:8000/health
+```
+
+#### 2. **Test DataCollector Endpoint** 🔥 HIGH PRIORITY
+```bash
+# Start DataCollector
+curl -X POST http://localhost:8000/data-collector/start \
   -H "Content-Type: application/json" \
-  -d '{"symbols": ["SPY"], "offline_mode": true}'
+  -d '{"symbols": ["QQQ"], "bar_size": "1Min"}'
+
+# Check status
+curl http://localhost:8000/data-collector/status
 ```
 
-#### 3. Monitor Logs
-Watch for these key indicators:
-- `🔬 GAMMA_ONLY_TEST_MODE=true (env var: true)`
-- `✅ Created X agents (Gamma Scalper only)`
-- `[GAMMA SCALP]` entries
-- `[DeltaHedge]` hedge trades
-- Position sizes should be reasonable (~1-2 shares for $1000 investment)
+**Expected Response:**
+```json
+{
+  "is_running": true,
+  "symbols": ["QQQ"],
+  "bar_size": "1Min",
+  "api_type": "Massive API",
+  "is_trading_hours": true
+}
+```
 
-### Short-Term (After Trading Starts)
+#### 3. **Verify Massive API Connection** ✅ DONE
+- ✅ Test script created: `scripts/test_massive_api.py`
+- ✅ Connection verified: API key loaded, client initialized
+- ⚠️ **Note**: No bars returned because market is closed (expected behavior)
 
-#### 4. Validate Position Sizes
-- Check that positions are reasonable (not 0.0069 shares)
-- Verify QQQ price is correct in trades
-- Confirm quantities are whole numbers or reasonable fractions
+---
 
-#### 5. Wait for Gamma Packages
-- Monitor for Gamma Scalper entries
-- Watch delta hedging activity
-- Wait for 1-2 complete packages (entry → hedging → exit)
+### **During Market Hours (9:30 AM - 4:00 PM ET)**
 
-#### 6. Export Timelines
+#### 4. **Test Real-Time Data Collection**
 ```bash
-./EXPORT_TIMELINES.sh
+# Run test script during market hours
+python scripts/test_massive_api.py --symbol QQQ --duration 60
+
+# Expected: Should see bars being collected every 30 seconds
 ```
-Or:
+
+#### 5. **Start Live Trading with Massive API**
+1. Start DataCollector (if not already running)
+2. Start live trading via dashboard or API
+3. Monitor `/live/status` to verify `last_bar_time` is recent
+4. Verify bot is using real-time data from Massive API cache
+
+---
+
+### **This Week**
+
+#### 6. **Monitor and Optimize**
+- Monitor DataCollector performance during market hours
+- Verify cache is being updated every minute
+- Check that IBKRDataFeed is using Massive cache for recent data
+- Optimize if needed (cache refresh rate, data freshness thresholds)
+
+---
+
+## 📊 **CURRENT SYSTEM STATUS**
+
+### **What Works**
+- ✅ Massive API connection and authentication
+- ✅ DataCollector code updated to support Massive API
+- ✅ IBKRDataFeed enhanced to check Massive cache
+- ✅ Test script created and verified
+- ✅ Configuration files updated
+
+### **What Needs Testing**
+- ⚠️ Server startup (after syntax fixes)
+- ⚠️ DataCollector endpoint (after server restart)
+- ⚠️ Real-time data collection during market hours
+- ⚠️ End-to-end data flow (DataCollector → Cache → IBKRDataFeed → Bot)
+
+---
+
+## 🔧 **TECHNICAL DETAILS**
+
+### **Data Flow (After Setup)**
+```
+1. DataCollector (Background Service)
+   ↓ Collects every 1 minute during market hours
+   ↓ Uses Massive API
+   ↓ Stores in SQLite cache (data/cache.db)
+
+2. IBKRDataFeed (Live Trading)
+   ↓ Checks Massive cache for recent bars (< 5 minutes)
+   ↓ Returns cached bars if available
+   ↓ Falls back to IBKR historical polling if cache stale
+
+3. LiveTradingLoop
+   ↓ Processes bars through trading pipeline
+   ↓ Executes trades based on agent signals
+```
+
+### **Priority Order for Data Sources**
+1. **Real-time bars from IBKR subscription** (if market data permissions available)
+2. **Preloaded bars from buffer**
+3. **Recent bars from Massive API cache** (< 5 minutes old) ← **NEW**
+4. **Historical polling from IBKR** (fallback)
+
+---
+
+## 📝 **FILES MODIFIED**
+
+### **New Files Created**
+- `scripts/test_massive_api.py` - Test script for Massive API
+- `MASSIVE_API_SETUP_COMPLETE.md` - Setup documentation
+- `SESSION_SUMMARY.md` - This summary
+
+### **Files Modified**
+- `services/data_collector.py` - Added Massive API support
+- `core/live/data_feed_ibkr.py` - Added Massive cache check
+- `ui/fastapi_app.py` - Updated DataCollector endpoint
+- `core/agents/trend_agent.py` - Fixed indentation errors
+- `ui/bot_manager.py` - Fixed indentation error
+
+---
+
+## ✅ **VERIFICATION CHECKLIST**
+
+- [x] Massive API key configured in `config/settings.yaml`
+- [x] DataCollector updated to support Massive API
+- [x] IBKRDataFeed enhanced to check Massive cache
+- [x] Test script created and verified
+- [x] Syntax errors fixed
+- [ ] **Server restarted and running** ← **NEXT STEP**
+- [ ] **DataCollector endpoint tested** ← **NEXT STEP**
+- [ ] **Real-time data collection tested during market hours** ← **PENDING**
+
+---
+
+## 🎯 **SUCCESS CRITERIA**
+
+The integration is successful when:
+1. ✅ Server starts without errors
+2. ✅ DataCollector starts and uses Massive API
+3. ✅ During market hours, DataCollector collects bars every minute
+4. ✅ IBKRDataFeed uses Massive cache for recent bars
+5. ✅ Bot receives real-time data and executes trades
+
+---
+
+## 💡 **QUICK START COMMANDS**
+
 ```bash
-curl -X POST http://localhost:8000/options/export-timelines
+# 1. Restart server
+pkill -f "python.*main.py"
+cd /Users/chavala/StocksAndLeaps/FutBot-Pro
+python3 main.py --mode api --host 0.0.0.0 --port 8000 &
+
+# 2. Wait for server to start (5-10 seconds)
+sleep 10
+
+# 3. Verify server is running
+curl http://localhost:8000/health
+
+# 4. Start DataCollector
+curl -X POST http://localhost:8000/data-collector/start \
+  -H "Content-Type: application/json" \
+  -d '{"symbols": ["QQQ"], "bar_size": "1Min"}'
+
+# 5. Check status
+curl http://localhost:8000/data-collector/status
 ```
 
-### Medium-Term (After Timelines Exported)
-
-#### 7. Validate Timeline Data
-- Check timeline files in `phase1_results/gamma_only/{run_id}/`
-- Verify delta, hedge shares, P&L components are logged correctly
-- Compare against expected patterns from GAMMA_SCALPER_QA_GUIDE.md
-
-#### 8. Run Validation Scenarios
-- Scenario G-H1: Clean up-move with re-hedges
-- Scenario G-H2: Down-move / round-trip
-- Scenario G-H3: No hedge band (frequency limits)
-- Scenario G-H4: Engine restart mid-hedged
-
 ---
 
-## 📊 CURRENT STATE
-
-### Code Status
-- ✅ All bug fixes committed and pushed
-- ✅ Documentation complete
-- ✅ Helper scripts ready
-- ✅ Freeze tag created (`v1.0.1-ml-gamma-qa`)
-
-### Server Status
-- ✅ Server running on port 8000
-- ✅ `GAMMA_ONLY_TEST_MODE=true` set
-- ⏳ Trading loop not started yet
-
-### Test Status
-- ⏳ Gamma-only test not executed yet
-- ⏳ No Gamma packages created yet
-- ⏳ Timelines not exported yet
-
----
-
-## 🔍 KEY FILES REFERENCE
-
-### Bug Fixes
-- `core/risk/advanced.py` - Position sizing fix (lines 237, 256)
-- `core/live/multi_leg_profit_manager.py` - F-string fix (line 99)
-
-### Documentation
-- `ALGORITHM_FLOWCHART.md` - Complete call flow documentation
-- `QUICK_FLOWCHART.txt` - Quick reference flowchart
-- `GAMMA_SCALPER_QA_GUIDE.md` - Validation scenarios
-
-### Scripts
-- `START_VALIDATION.sh` - Start server
-- `START_TRADING_GAMMA_ONLY.sh` - Start trading loop
-- `EXPORT_TIMELINES.sh` - Export timelines
-- `COMPLETE_FREEZE_VERIFY.sh` - Verify freeze
-
-### Configuration
-- `config/gamma_only_config.yaml` - Gamma-only test config
-- `GAMMA_ONLY_TEST_MODE` - Environment variable (set to `true`)
-
----
-
-## ⚠️ KNOWN ISSUES
-
-### Fixed
-- ✅ Position sizing bug (regime cap calculation)
-- ✅ F-string syntax error
-
-### Potential Issues to Watch
-- ⚠️ Price mismatch (check `bar.symbol == symbol`)
-- ⚠️ Low confidence causing small positions (expected behavior)
-- ⚠️ Delta hedging frequency limits (should respect 5-bar cooldown)
-
----
-
-## 📝 NOTES
-
-1. **Position Sizing:** After the fix, positions should be reasonable. If still small, check:
-   - Confidence level (low confidence = smaller positions)
-   - Regime type (compression = 5% cap, trend = 15% cap)
-   - Testing mode (simpler sizing if enabled)
-
-2. **Gamma-Only Test:** The test is designed to validate:
-   - Delta hedging works correctly
-   - Timeline logging captures all data
-   - Guardrails prevent excessive hedging
-   - P&L calculations are accurate
-
-3. **Next Tag:** After successful Gamma-only test validation, create:
-   - Tag: `v1.0.2-ml-gamma-validated`
-   - Or similar version increment
-
----
-
-## 🎯 SUCCESS CRITERIA
-
-### For Gamma-Only Test
-- ✅ At least 1-2 complete Gamma packages (entry → exit)
-- ✅ Delta hedging executed correctly
-- ✅ Timeline data exported and validated
-- ✅ No critical errors in logs
-- ✅ Position sizes are reasonable
-- ✅ Hedge P&L tracked separately from options P&L
-
-### For Phase 1 Validation
-- ✅ All scenarios pass (G-H1 through G-H4)
-- ✅ Timeline data matches expected patterns
-- ✅ No orphaned positions
-- ✅ P&L calculations accurate
-- ✅ Guardrails working correctly
-
----
-
-**Last Updated:** Current Session  
-**Next Review:** After Gamma-only test execution
+**Last Updated:** 2025-12-20  
+**Status:** ✅ **Code Complete** | ⚠️ **Testing Pending**

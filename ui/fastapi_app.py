@@ -1105,8 +1105,59 @@ async def get_weight_evolution_chart():
     return Response(content=img_bytes, media_type="image/png")
 
 
+@app.get("/visualizations/price-history")
+async def get_price_history(symbol: str = "QQQ"):
+    """Get price history for a symbol."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    
+    if not bot_manager.live_loop:
+        return {"dates": [], "opens": [], "highs": [], "lows": [], "closes": [], "volumes": []}
+    
+    try:
+        bars = bot_manager.live_loop.bar_history.get(symbol, [])
+        if not bars:
+             return {"dates": [], "opens": [], "highs": [], "lows": [], "closes": [], "volumes": []}
+        
+        # Convert bars to OHLCV lists
+        dates = []
+        opens = []
+        highs = []
+        lows = []
+        closes = []
+        volumes = []
+        
+        for bar in bars:
+            dates.append(bar.timestamp.isoformat())
+            opens.append(bar.open)
+            highs.append(bar.high)
+            lows.append(bar.low)
+            closes.append(bar.close)
+            volumes.append(bar.volume)
+            
+        return {
+            "dates": dates,
+            "opens": opens,
+            "highs": highs,
+            "lows": lows,
+            "closes": closes,
+            "volumes": volumes
+        }
+    except Exception as e:
+        logger.error(f"Error getting price history: {e}")
+        return {"dates": [], "opens": [], "highs": [], "lows": [], "closes": [], "volumes": []}
+
+
 @app.get("/visualizations/dashboard", response_class=HTMLResponse)
 async def get_dashboard():
+    """Serve the modern Webull-style dashboard."""
+    try:
+        with open("ui/dashboard_webull.html", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        # Fallback to existing logic if file not found
+        pass
+
     """Get interactive Plotly dashboard."""
     if not bot_manager:
         raise HTTPException(status_code=503, detail="Bot manager not initialized")
@@ -2281,6 +2332,86 @@ async def download_logs():
     )
 
 
+@app.get("/live/trade-diagnostics")
+async def get_trade_diagnostics():
+    """Get detailed diagnostics on why trades aren't executing."""
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    
+    if not bot_manager.live_loop:
+        return {
+            "error": "Live loop not running",
+            "status": "not_running"
+        }
+    
+    # Get current state
+    status = bot_manager.live_loop.get_status()
+    regime = bot_manager.get_current_regime()
+    
+    # Get bar history
+    bars_for_symbol = {}
+    for symbol in bot_manager.live_loop.config.symbols:
+        bars = bot_manager.live_loop.bar_history.get(symbol, [])
+        bars_for_symbol[symbol] = len(bars)
+    
+    # Simulate agent evaluation
+    diagnostics = {
+        "status": status,
+        "regime": {
+            "type": regime.regime_type.value if regime else "unknown",
+            "confidence": regime.confidence if regime else 0.0,
+            "is_valid": regime.is_valid if regime else False,
+            "is_trending": regime.is_trending if regime else False,
+            "is_mean_reversion": regime.is_mean_reversion if regime else False,
+        } if regime else None,
+        "bars_available": bars_for_symbol,
+        "minimum_bars_required": bot_manager.live_loop.config.minimum_bars_required,
+        "testing_mode": bot_manager.live_loop.config.testing_mode,
+        "agents": []
+    }
+    
+    # Test each agent
+    if regime and bot_manager.live_loop.bar_history:
+        # Get latest market state
+        symbol = bot_manager.live_loop.config.symbols[0] if bot_manager.live_loop.config.symbols else "QQQ"
+        bars = bot_manager.live_loop.bar_history.get(symbol, [])
+        
+        if bars:
+            latest_bar = bars[-1]
+            market_state = {
+                "close": latest_bar.close,
+                "price": latest_bar.close,
+                "high": latest_bar.high,
+                "low": latest_bar.low,
+                "volume": latest_bar.volume,
+            }
+            
+            # Test each agent
+            for agent in bot_manager.agents:
+                try:
+                    intents = agent.evaluate(regime, market_state)
+                    diagnostics["agents"].append({
+                        "name": agent.name,
+                        "intents_generated": len(intents),
+                        "intents": [
+                            {
+                                "direction": intent.direction.value if hasattr(intent.direction, 'value') else str(intent.direction),
+                                "confidence": intent.confidence,
+                                "size": intent.size,
+                                "reason": intent.reason
+                            } for intent in intents
+                        ]
+                    })
+                except Exception as e:
+                    diagnostics["agents"].append({
+                        "name": agent.name,
+                        "error": str(e),
+                        "intents_generated": 0
+                    })
+    
+    return diagnostics
+
+
 @app.get("/live/portfolio")
 async def get_live_portfolio():
     """Get live portfolio snapshot."""
@@ -2326,10 +2457,27 @@ async def get_metrics_json():
 
 
 # Data Collector Endpoints
+class DataCollectorStartRequest(BaseModel):
+    """Request model for starting data collector."""
+    symbols: List[str] = ["QQQ"]
+    bar_size: str = "1Min"
+
 @app.post("/data-collector/start")
-async def start_data_collector(symbols: List[str] = ["QQQ"], bar_size: str = "1Min"):
-    """Start background data collection service."""
+async def start_data_collector(request: Optional[DataCollectorStartRequest] = None):
+    """Start background data collection service.
+    
+    Accepts JSON body with:
+    - symbols: List of symbols (default: ["QQQ"])
+    - bar_size: Bar size (default: "1Min")
+    """
     global data_collector
+    
+    # Use defaults if request is None (allows empty body)
+    if request is None:
+        request = DataCollectorStartRequest()
+    
+    symbols = request.symbols
+    bar_size = request.bar_size
     
     if data_collector and data_collector.is_running:
         return {"status": "already_running", "message": "Data collector already running"}
@@ -2346,18 +2494,23 @@ async def start_data_collector(symbols: List[str] = ["QQQ"], bar_size: str = "1M
         api_key = os.getenv("ALPACA_API_KEY")
         api_secret = os.getenv("ALPACA_SECRET_KEY")
         
-        if not api_key or not api_secret:
+        # DataCollector now supports both Massive API and Alpaca API
+        # It will automatically use Massive API if available, otherwise Alpaca
+        # Only require Alpaca keys if Massive API is not available
+        massive_key = os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY")
+        if not massive_key and (not api_key or not api_secret):
             raise HTTPException(
                 status_code=400,
-                detail="Alpaca API keys required. Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables."
+                detail="API keys required. Set MASSIVE_API_KEY/POLYGON_API_KEY (preferred) or ALPACA_API_KEY/ALPACA_SECRET_KEY environment variables."
             )
         
         data_collector = DataCollector(
             symbols=symbols,
             bar_size=bar_size,
             cache_path=cache_path,
-            api_key=api_key,
-            api_secret=api_secret,
+            api_key=api_key,  # Will be used for Alpaca if Massive not available
+            api_secret=api_secret,  # Will be used for Alpaca if Massive not available
+            use_massive_api=True,  # Prefer Massive API if available
         )
         data_collector.start()
         

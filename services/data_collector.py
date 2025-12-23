@@ -9,14 +9,22 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
+
 from core.config import load_config
+from core.config.polygon import PolygonSettings
 from services.cache import BarCache
+from services.polygon_client import PolygonClient
 
 logger = logging.getLogger(__name__)
 
 
 class DataCollector:
-    """Background service that continuously collects and stores market data."""
+    """Background service that continuously collects and stores market data.
+    
+    Supports both Alpaca API and Massive API (Polygon) for data collection.
+    Prioritizes Massive API if available (better for real-time data).
+    """
 
     def __init__(
         self,
@@ -25,6 +33,7 @@ class DataCollector:
         cache_path: Optional[Path] = None,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
+        use_massive_api: bool = True,  # Prefer Massive API if available
     ):
         """
         Initialize data collector.
@@ -33,8 +42,9 @@ class DataCollector:
             symbols: List of symbols to collect data for
             bar_size: Bar size (e.g., "1Min", "5Min")
             cache_path: Path to cache database
-            api_key: Alpaca API key (optional, uses env if not provided)
-            api_secret: Alpaca API secret (optional, uses env if not provided)
+            api_key: API key (Alpaca or Massive, uses env if not provided)
+            api_secret: API secret (Alpaca only, uses env if not provided)
+            use_massive_api: If True, try to use Massive API first (default: True)
         """
         self.symbols = symbols
         self.bar_size = bar_size
@@ -46,40 +56,72 @@ class DataCollector:
         from dotenv import load_dotenv
         load_dotenv()
         
-        self.api_key = api_key or os.getenv("ALPACA_API_KEY")
-        self.api_secret = api_secret or os.getenv("ALPACA_SECRET_KEY")
+        # Determine which API to use
+        self.use_massive = False
+        self.use_alpaca = False
         
-        if not self.api_key or not self.api_secret:
-            raise ValueError("Alpaca API keys required for data collection")
+        # Try Massive API first (if enabled and key available)
+        if use_massive_api:
+            try:
+                massive_key = api_key or os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY")
+                if massive_key:
+                    # Try loading from config file first
+                    try:
+                        polygon_settings = PolygonSettings.load()
+                        massive_key = polygon_settings.api_key
+                    except Exception:
+                        pass  # Use env var if config fails
+                    
+                    if massive_key:
+                        self.polygon_settings = PolygonSettings(api_key=massive_key)
+                        self.polygon_client = PolygonClient(self.polygon_settings, self.cache_path)
+                        self.use_massive = True
+                        logger.info("✅ Data collector using Massive API (Polygon)")
+            except Exception as e:
+                logger.warning(f"Could not initialize Massive API: {e}, falling back to Alpaca")
         
-        # Initialize Alpaca client
-        try:
-            from alpaca.data.historical import StockHistoricalDataClient
-            from alpaca.data.timeframe import TimeFrame
+        # Fall back to Alpaca if Massive not available
+        if not self.use_massive:
+            self.api_key = api_key or os.getenv("ALPACA_API_KEY")
+            self.api_secret = api_secret or os.getenv("ALPACA_SECRET_KEY")
             
-            self.data_client = StockHistoricalDataClient(
-                api_key=self.api_key,
-                secret_key=self.api_secret
-            )
+            if not self.api_key or not self.api_secret:
+                raise ValueError(
+                    "API keys required for data collection. "
+                    "Set MASSIVE_API_KEY/POLYGON_API_KEY or ALPACA_API_KEY/ALPACA_SECRET_KEY"
+                )
             
-            # Map bar size to TimeFrame
-            self.timeframe_map = {
-                "1Min": TimeFrame.Minute,
-                "5Min": TimeFrame(5, TimeFrame.Minute),
-                "15Min": TimeFrame(15, TimeFrame.Minute),
-                "1Hour": TimeFrame.Hour,
-                "1Day": TimeFrame.Day,
-            }
-            self.timeframe = self.timeframe_map.get(bar_size, TimeFrame.Minute)
-            
-        except ImportError:
-            raise ImportError("alpaca-py not installed. Run: pip install alpaca-py")
+            # Initialize Alpaca client
+            try:
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.timeframe import TimeFrame
+                
+                self.data_client = StockHistoricalDataClient(
+                    api_key=self.api_key,
+                    secret_key=self.api_secret
+                )
+                
+                # Map bar size to TimeFrame
+                self.timeframe_map = {
+                    "1Min": TimeFrame.Minute,
+                    "5Min": TimeFrame(5, TimeFrame.Minute),
+                    "15Min": TimeFrame(15, TimeFrame.Minute),
+                    "1Hour": TimeFrame.Hour,
+                    "1Day": TimeFrame.Day,
+                }
+                self.timeframe = self.timeframe_map.get(bar_size, TimeFrame.Minute)
+                self.use_alpaca = True
+                logger.info("✅ Data collector using Alpaca API")
+                
+            except ImportError:
+                raise ImportError("alpaca-py not installed. Run: pip install alpaca-py")
         
         self.is_running = False
         self.collector_thread: Optional[threading.Thread] = None
         self.last_collection_times: dict[str, datetime] = {}
         
-        logger.info(f"Data collector initialized for symbols: {symbols}, bar_size: {bar_size}")
+        api_type = "Massive API" if self.use_massive else "Alpaca API"
+        logger.info(f"Data collector initialized for symbols: {symbols}, bar_size: {bar_size}, API: {api_type}")
 
     def _is_trading_hours(self) -> bool:
         """Check if current time is within US market trading hours (9:30 AM - 4:00 PM ET)."""
@@ -106,7 +148,68 @@ class DataCollector:
     def _collect_bars(self, symbol: str) -> int:
         """Collect latest bars for a symbol and store in cache."""
         try:
+            if self.use_massive:
+                return self._collect_bars_massive(symbol)
+            elif self.use_alpaca:
+                return self._collect_bars_alpaca(symbol)
+            else:
+                raise ValueError("No API configured for data collection")
+        except Exception as e:
+            logger.error(f"Error collecting bars for {symbol}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return 0
+    
+    def _collect_bars_massive(self, symbol: str) -> int:
+        """Collect bars using Massive API (Polygon)."""
+        try:
+            # Determine time range
+            # Collect last 1 hour of data (or more if we haven't collected recently)
+            end_time = datetime.now(timezone.utc)
+            
+            # If we've collected before, start from last collection time
+            # Otherwise, collect last 24 hours
+            if symbol in self.last_collection_times:
+                start_time = self.last_collection_times[symbol] - timedelta(minutes=5)  # 5 min overlap
+            else:
+                start_time = end_time - timedelta(hours=24)
+            
+            # Use PolygonClient to fetch bars
+            bars_df = self.polygon_client.get_historical_bars(
+                symbol=symbol,
+                timeframe=self.bar_size,
+                start=start_time,
+                end=end_time,
+            )
+            
+            if bars_df.empty:
+                logger.warning(f"No bars returned from Massive API for {symbol}")
+                return 0
+            
+            # Store in cache (PolygonClient already stores, but ensure it's there)
+            self.cache.store(symbol, self.bar_size, bars_df)
+            
+            # Update last collection time
+            if not bars_df.empty:
+                last_bar_time = bars_df.index[-1]
+                if isinstance(last_bar_time, pd.Timestamp):
+                    last_bar_time = last_bar_time.to_pydatetime()
+                if last_bar_time.tzinfo:
+                    last_bar_time = last_bar_time.replace(tzinfo=None)
+                self.last_collection_times[symbol] = last_bar_time
+            
+            logger.info(f"Collected {len(bars_df)} bars for {symbol} from Massive API")
+            return len(bars_df)
+            
+        except Exception as e:
+            logger.error(f"Error collecting bars from Massive API for {symbol}: {e}")
+            raise
+    
+    def _collect_bars_alpaca(self, symbol: str) -> int:
+        """Collect bars using Alpaca API."""
+        try:
             from alpaca.data.requests import StockBarsRequest
+            import pandas as pd
             
             # Determine time range
             # Collect last 1 hour of data (or more if we haven't collected recently)
@@ -160,8 +263,6 @@ class DataCollector:
                 symbol_bars = list(symbol_bars)
             
             # Convert to DataFrame format for cache
-            import pandas as pd
-            
             bars_data = []
             for alpaca_bar in symbol_bars:
                 bar_time = alpaca_bar.timestamp
@@ -185,6 +286,7 @@ class DataCollector:
             # Create DataFrame
             df = pd.DataFrame(bars_data)
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df.set_index("timestamp", inplace=True)
             
             # Store in cache
             self.cache.store(symbol, self.bar_size, df)
@@ -197,14 +299,12 @@ class DataCollector:
                 else:
                     self.last_collection_times[symbol] = datetime.now(timezone.utc)
             
-            logger.info(f"Collected {len(bars_data)} bars for {symbol}")
+            logger.info(f"Collected {len(bars_data)} bars for {symbol} from Alpaca API")
             return len(bars_data)
             
         except Exception as e:
-            logger.error(f"Error collecting bars for {symbol}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return 0
+            logger.error(f"Error collecting bars from Alpaca API for {symbol}: {e}")
+            raise
 
     def _collection_loop(self) -> None:
         """Main collection loop running in background thread."""
@@ -265,6 +365,7 @@ class DataCollector:
             "is_running": self.is_running,
             "symbols": self.symbols,
             "bar_size": self.bar_size,
+            "api_type": "Massive API" if self.use_massive else "Alpaca API",
             "last_collection_times": {
                 symbol: time.isoformat() if isinstance(time, datetime) else None
                 for symbol, time in self.last_collection_times.items()
